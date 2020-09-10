@@ -1,0 +1,13 @@
+\babel@toc {russian}{}
+\contentsline {section}{\numberline {1}Введение}{3}%
+\contentsline {section}{\numberline {2}Задачи на графах}{4}%
+\contentsline {section}{\numberline {3}Необходимые обозначения и формулировка проблемы}{5}%
+\contentsline {section}{\numberline {4}Наборы данных и метрики качества}{7}%
+\contentsline {section}{\numberline {5}Классификация и описание методов}{10}%
+\contentsline {subsection}{\numberline {5.1}Методы, основанные на факторизации}{10}%
+\contentsline {subsection}{\numberline {5.2}Методы, основанные на случайных блужданиях}{14}%
+\contentsline {subsection}{\numberline {5.3}Методы, осованные на глубоком обучении}{17}%
+\contentsline {subsection}{\numberline {5.4}Другие методы}{20}%
+\contentsline {section}{\numberline {6}Рекомендации по использованию методов}{22}%
+\contentsline {section}{\numberline {7}Заключение}{23}%
+\contentsline {section}{Список использованных источников}{24}%
