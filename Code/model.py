@@ -1,16 +1,16 @@
 import torch
 from torch_geometric.nn import GCNConv, SAGEConv,GATConv
 import torch.nn.functional as F
-import torch_geometric.transforms as T
+
 
 class Net(torch.nn.Module):
-    def __init__(self, num_features,num_classes, mode='unsupervised',conv='GCN',loss_function='loss_from_SAGE'):
+    def __init__(self, dataset, mode='unsupervised',conv='GCN',loss_function='loss_from_SAGE'):
         super(Net, self).__init__()
         self.mode = mode
         self.conv=conv
         self.num_layers = 2
-        self.num_features = num_features
-        self.num_classes = num_classes
+        self.num_features = dataset.num_features
+        self.num_classes = dataset.num_classes
         self.loss_function = loss_function
         self.convs = torch.nn.ModuleList()
     
@@ -20,13 +20,13 @@ class Net(torch.nn.Module):
             out_channels = num_classes
         
         if self.conv == 'GCN':
-            self.convs.append(GCNConv(num_features, 256))
+            self.convs.append(GCNConv(self.num_features, 256))
             self.convs.append(GCNConv(256, out_channels))
         if self.conv == 'SAGE':
-            self.convs.append(SAGEConv(num_features, 256))
+            self.convs.append(SAGEConv(self.num_features, 256))
             self.convs.append(SAGEConv(256, out_channels))
         if self.conv == 'GAT':
-            self.convs.append(GATConv(num_features, 256))
+            self.convs.append(GATConv(self.num_features, 256))
             self.convs.append(GATConv(256, out_channels))
                 
     def forward(self,x,adjs):
@@ -77,6 +77,7 @@ class Net(torch.nn.Module):
             neg_loss = -torch.log(torch.sigmoid((-1)*dot)).mean()
 
             return pos_loss + neg_loss
+        
     
     ##loss function for supervised     
     def loss_sup(self, pred, label):

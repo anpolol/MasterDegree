@@ -1,11 +1,14 @@
 import torch
 from torch_geometric.data import NeighborSampler
-device = 'cpu'
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import confusion_matrix
 import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid
+from sklearn.neural_network import MLPClassifier
+
+device = 'cpu'
 dataset =Planetoid(root='/tmp/Cora', name='Cora',transform=T.NormalizeFeatures())
 data = dataset[0]
-from sklearn.neural_network import MLPClassifier
 x = data.x.to(device)
 y = data.y.squeeze().to(device)
 
@@ -26,8 +29,7 @@ def train(model,data,optimizer,loader):
     optimizer.step()      
     return total_loss /len(loader)
 
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import confusion_matrix
+
 @torch.no_grad()
 def test(model,data):
     model.eval()

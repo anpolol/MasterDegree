@@ -1,19 +1,19 @@
 #Сэмплирование позитивных и негативных примеров  
 import torch
 from torch_cluster import random_walk
-device = 'cpu'
 from torch_geometric.utils import negative_sampling
 from torch_geometric.utils import structured_negative_sampling
 import numpy as np
 import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid
+from torch_sparse import SparseTensor
+
 dataset =Planetoid(root='/tmp/Cora', name='Cora',transform=T.NormalizeFeatures())
 data = dataset[0]
-
+device = 'cpu'
 x = data.x.to(device)
 y = data.y.squeeze().to(device)
 
-from torch_sparse import SparseTensor
 row=[]
 col =[]
 x_new = [j for j in range(len(x))]
@@ -28,17 +28,7 @@ row = torch.tensor(row)
 row = row.to(device)
 col = torch.tensor(col)
 col = col.to(device)
-
 adj = SparseTensor(row=row, col=col, sparse_sizes=(140, 140)).to(device) #это edge_index для train
-
-row2 = ((row.tolist()))
-col2 = ((col.tolist()))
-
-a = []
-a.append(row2)
-a.append(col2)
-a = torch.tensor(a)
-
 
 def pos_sample(batch):
         p=1
@@ -57,7 +47,15 @@ def pos_sample(batch):
             walks.append(rw[:, j:j + context_size]) #теперь у нас внутри walks лежат 12 матриц размерам 10*10 
         return torch.cat(walks, dim=0) #Благодаря конкатенации теперь walks выглядит как матрица размером 120*10
     #в train_test мы проходим по загрузчику поэтапно, значит батч меняется от 1 до 140ой вершины, на каждую вершину мы получаем по матрице размером 120 на 10. 
-     
+
+    
+row2 = ((row.tolist()))
+col2 = ((col.tolist()))
+
+a = []
+a.append(row2)
+a.append(col2)
+a = torch.tensor(a)
 def neg_sample(batch):
     walks_per_node = 10
     num_negative_samples=1
@@ -74,3 +72,7 @@ def sample(batch):
     if not isinstance(batch, torch.Tensor):
         batch = torch.tensor(batch).to(device)
     return pos_sample(batch),neg_sample(batch)
+
+from torch.utils.data import DataLoader
+from sampling import sample
+loader = DataLoader(range(adj.sparse_size(0)),collate_fn=sample)
