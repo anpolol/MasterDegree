@@ -20,7 +20,7 @@ def train(model,data,optimizer,loader):
         out = model.forward(data.x[n_id].to(device), adjs)
         optimizer.zero_grad()
         for i, (pos_rw, neg_rw) in enumerate(loader):
-            loss = model.loss_RW_SAGE(out, pos_rw.to(device), neg_rw.to(device))
+            loss = model.loss(out, pos_rw.to(device), neg_rw.to(device))
             total_loss+=loss
     total_loss.backward(retain_graph=True)
     optimizer.step()      
