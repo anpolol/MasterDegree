@@ -112,7 +112,7 @@ $N(v)$ &  Соседи вершины $v$ внутри окна определе
 
 \begin{figure} [h!]
 	\begin{minipage}{\linewidth}
-	 		\center {\includegraphics[width =0.7\linewidth]{u.png}} \\ \small{Рисунок 1}
+	 		\center {\includegraphics[width =0.7\linewidth]{pictures/u.png}} \\ \small{Рисунок 1}
  	\end{minipage}
 	 \end{figure}
 
@@ -478,7 +478,7 @@ sim_G^{ADJ}(u,v) = \begin{cases}
 Общая идея данных методов - агрегировать информацию от соседних вершин и передавать на следующий слой, выстраивая таким образом полноценную нейронную сеть. (см. Рисунок 2). Довольно распространены и популярны среди методов глубокого обучения на графах методы GCN (Graph Convolutional Network) \cite{GCN} и GAT (Graph Attention Network) \cite{GAN}. Однако в оригинальном виде они используют в качестве функции потерь cross-entropy, которая считается для режима обучения с учителем (необходимы размеченные данные).  Тем не менее их можно модифицировать, беря только части, касающиеся неконтролируемого этапа:  
 \begin{figure} [h!]
 	\begin{minipage}{\linewidth}
-	 		\center {\includegraphics[width =1\linewidth]{GNN.png}} \\ \small{Рисунок 2}
+	 		\center {\includegraphics[width =1\linewidth]{pictures/GNN.png}} \\ \small{Рисунок 2}
  	\end{minipage}
 	 \end{figure}
 \begin{itemize}
