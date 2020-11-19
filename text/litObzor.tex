@@ -280,14 +280,14 @@ $P = \frac{\sum_{l\in L} TP(l)}{\sum_{l\in L} (TP(l)+FP(l))}$,   $R = \frac{\sum
 \end{equation}
 где $\alpha$ -- вероятность рандомного перехода к соседу. 
 \item Common Neighbors
-\begin{equation}
+\begin{equation}\label{eqn:HOPERPR}
 \begin{aligned}
 \textbf{M}_g = \textbf{I}, \\
  \textbf{M}_l = \textbf{A}^2, 
 \end{aligned}
 \end{equation}
 \item Adamic-Adar score
-\begin{equation}
+\begin{equation}\label{eqn:HOPECommonNeigbor}
 \begin{aligned}
 \textbf{M}_g = \textbf{I}, \\
  \textbf{M}_l = \textbf{A}\cdot \textbf{D} \cdot \textbf{A}, 
@@ -298,7 +298,7 @@ $P = \frac{\sum_{l\in L} TP(l)}{\sum_{l\in L} (TP(l)+FP(l))}$,   $R = \frac{\sum
 В связи с разреженностью $\textbf{M}_g,\textbf{M}_l$ можно эффективно использовать разреженное обобщенное сингулярное разложение (SVD) для построения эмбедингов графа: SVD применяется к $\textbf{M}_g, \textbf{M}_l$. Оптимальные значения эмбедингов - считаются как корни произведения синуглярного числа на соответвующий сингулярный вектор.  
 
 %NETMF более подронбно, но коротко, соновные формулы вставить 
-\item Авторы статьи \cite{NETMF} показывают, что каждая из четырех моделей: DeepWalk, LINE, PTE, Node2vec, выполняют неявную матричную факторизацию. Для каждой модели выведены матричные формы. Например, алгоритм DeepWalk экивалентен факторизации следующей матрицы:
+\item Авторы статьи \cite{NETMF} показывают, что каждая из четырех моделей: DeepWalk, LINE, PTE, Node2vec, выполняют неявную матричную факторизацию (алгоритм NetMF). Для каждой модели выведены матричные формы. Например, алгоритм DeepWalk экивалентен факторизации следующей матрицы:
 \begin{equation}\label{eqn:NetMF}
 \log (\frac{vol(G)}{T}(\sum_{r=1}^T \textbf{P}^r)\textbf{D}^{-1}) - \log(b)
 \end{equation}
@@ -319,7 +319,7 @@ $P = \frac{\sum_{l\in L} TP(l)}{\sum_{l\in L} (TP(l)+FP(l))}$,   $R = \frac{\sum
 \hline
 факторизации & Graph Factorization & $\times$  & $\frac{1}{2} \sum_{i,j} ( A_{i,j} - \Phi_i\cdot\Phi_j )^2\newline + \frac{\lambda}{2}\sum_i ||\Phi_i||^2$ & SGD with  asynchronous optimization\\
 \hline
-факторизации & HOPE (Katz index) &   \checkmark &$||(\textbf{I}-\beta\cdot\textbf{A})^{-1}\cdot \beta\cdot \textbf{A}- \Phi \cdot\Theta||_F^2$ \newline $\beta-$ параметр затухания (см. ур-е \ref{eqn:HOPEKatz}) & Matrix Factorization\\
+факторизации & HOPE &   \checkmark &$||\textbf{C} - \Phi \cdot\Theta||_F^2$, $C-$ матрица схожести вершин, см. уравнения \ref{eqn:HOPEKatz}, \ref{eqn:HOPERPR}, \ref{eqn:HOPECommonNeigbor} & Matrix Factorization\\
 \hline
 факторизации & NetMF &      \checkmark  & $|| \log (\frac{vol(G)}{bT}(\sum_{r=1}^T \textbf{P}^r)\textbf{D}^{-1}) - \Phi \cdot \Theta||_F^2$\newline (значение параметров см. в описании к ур-ию \ref{eqn:NetMF}) &Matrix Factorization + Negative Sampling\\
 \hline
@@ -327,7 +327,7 @@ $P = \frac{\sum_{l\in L} TP(l)}{\sum_{l\in L} (TP(l)+FP(l))}$,   $R = \frac{\sum
 \hline
 случайных блужданиях  & Node2Vec &  \checkmark      & $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} log \frac{\exp (\Theta_i \cdot \Phi_j)}{\sum_{v_k \in V} \exp (\Theta_k \cdot \Phi_j) } $\newline Случаыные блуждания меют два параметра - вероятноность перехода к вершинам, отвечающим за исследования локальной  и глобальной структур& Negative Sampling \\
 \hline
-случайных блужданиях  & Struc2Vec&   \checkmark  & $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} log \frac{\exp (\Theta_i \cdot \Phi_j)}{\sum_{v_k \in V} \exp (\Theta_k \cdot \Phi_j) } $\newline Случыйные блуждания строятся по контекстному графу (см ур.-я \ref{eqn:RandomWalkForStruc2Vec},\ref{eqn:RandomWalkForStruc2Vec2}), учитываемому структурную схожесть вершин & Hierarchical Softmax \\
+случайных блужданиях  & Struc2Vec&   \checkmark  & $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} log \frac{\exp (\Theta_i \cdot \Phi_j)}{\sum_{v_k \in V} \exp (\Theta_k \cdot \Phi_j) } $\newline СлучАйные блуждания строятся по контекстному графу (см ур.-я \ref{eqn:RandomWalkForStruc2Vec},\ref{eqn:RandomWalkForStruc2Vec2}), учитываемому структурную схожесть вершин & Hierarchical Softmax \\
 \hline
 случайных блужданиях  & Seed & $\times$ &     $ ||X - \hat{X}||_2^2$  & Deep autoencoders\\
 \hline
@@ -395,13 +395,13 @@ w_k(u,v) = \exp^{-f_k(u,v)}
 \end{equation}
 Между слоями ребра соединяют лишь соотевтвующие вершины. Вес между ребром от $u_k$ к $u_{k+1}$ равен логарифму суммы ребер, инцидентных $u_k$ и имеющих вес больший, чем средний по данному слою.
 
-\item Далее по этому контекстному графу строится несколько случайных блужданий фиксированной длины, наичная с нулевого слоя. Вероятность перехода к вершине внутри слоя равна:
+\item Далее по этому контекстному графу строится несколько случайных блужданий фиксированной длины, начиная с нулевого слоя. Вероятность перехода к вершине внутри слоя равна:
 \begin{equation}\label{eqn:RandomWalkForStruc2Vec}
 p_k(u,v) = \frac{\exp^{-f_k(u,v)}}{\sum_{l \neq u, l \in V} \exp^{-f_k(u,l)}}
 \end{equation} 
 А вероятность перейти на следующий слой:
 
-\begin{equation}
+\begin{equation}\label{eqn:RandomWalkForStruc2Vec2}
 \begin{aligned}
 	p_k(u_k,u_{k+1}) &= \frac{w(u_k,u_{k+1})}{w(u_k,u_{k+1}) + w(u_k,u_{k-1})},\\
 	p_k(u_k,u_{k-1}) & =1 - p_k(u_k,u_{k+1})
@@ -436,7 +436,7 @@ h(\text{head entity}),l(\text{relation}),t(\text{tail entity}) \rightarrow (h,l,
 Затем, сущности переводятся одним из вышеперечисленных методов в простнаство эмбедингов.
 
 Далее отношения предсталяются как переносы (translations):
-\begin{equation}\label{eqn:RandomWalkForStruc2Vec2}
+\begin{equation}
  \genfrac{}{}{0pt}{}{(h+l) \approx t,  \text{данный факт - правда}}{(h+l) \neq t,  \text{иначе} }  
 \end{equation} 
 
@@ -445,7 +445,14 @@ h(\text{head entity}),l(\text{relation}),t(\text{tail entity}) \rightarrow (h,l,
 \begin{equation}
 \sum_{v \in V} KL(sim_G(v,\cdot) || sim_E(v,\cdot))
 \end{equation}
-Также как и HOPE использует различные меры схожести (PPR, SimRank, Adjacency similarity):
+
+В качестве распределения схожести вершин в пространстве эмбеддингов используется нормализованное с помощью softmax скалярное произведение эмбеддингов:
+ \begin{equation}
+sim_E(v,\cdot) = \frac{\exp{\Phi_v \Phi^{T}}}{\sum_{i=1}^n \exp(\Phi_v \Phi_i)}
+\end{equation}
+В данном выше уравнении $\Phi - $ матрица эмбеддингов, в которой отдельный ряд $\Phi_v$ соответствует эмбеддингу вершины $v$.
+
+Также как и HOPE использует различные меры для распределения схожести в графе (PPR, SimRank, Adjacency similarity):
 
 \begin{enumerate}
 \item Personalized PageRank: один экзамепляр $sim_G(v,\cdot)$ это последняя вершина в одом случайном блуждании, начатом с вершины $v$.
@@ -463,7 +470,25 @@ sim_G^{ADJ}(u,v) = \begin{cases}
 \end{equation}
 
 \end{enumerate}
-Для оптимизации используется Noise Contrastive Estimation (NCE): алгоритм строит классификатор, который разделяет вершины из нужного нам распределения и распределения шума. 
+
+Рассмотрим подробнее функцию потерь:
+
+По определению расстояния Кульбака-Лейбнера для дискретных распределений:
+\begin{equation}
+KL(P||Q) = \sum_{i=1}^n p_i \log\frac{p_i}{q_i}
+\end{equation}
+
+В случае с распределениями схожести в графе и прстранстве эмбеддингов, получаем:
+\begin{multline}
+KL(sim_G(v,\cdot)||sim_E(v,\cdot))= \sum_{i=1}^n sim_G(v,\cdot)\log\frac{sim_G(v,i)}{sim_E(v,i)} = \\
+= \sum_{i=1}^n sim_G(v,i)\log sim_G(v,i) - \sum_{i=1}^n sim_G(v,i)\log sim_E(v,i)
+\end{multline}
+Но первое слагаемое, включает в себ ятолько распределение схожест в графе, что не влияет на минимизацию, так как задается изначально. Поэтому,  в качестве функции потерь остается только:
+
+\begin{equation}\label{eqn:LossVERSE}
+\mathcal{L} = - \sum_{v \in V} sim_G(v,\cdot) \log \frac{\exp{\Phi_v \Phi^{T}}}{\sum_{i=1}^n \exp(\Phi_v \Phi_i)}
+\end{equation}
+Для оптимизации используется Noise Contrastive Estimation (NCE): алгоритм строит классификатор (логистическую регрессию), который разделяет вершины из настоящего распределения $sim_G(v,\cdot)$ и распределения шума $Q$. Производная от NCE с увеличением негативных примеров, сходится  градиенту функции (\ref{eqn:LossVERSE}).
 
 В отличие от HOPE использует нелинейные преобразовнаия и требует на вход не обязательно весь граф из-за чего может быть использован на больших графах.  
 \end{itemize}
