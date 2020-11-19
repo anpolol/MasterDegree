@@ -1,0 +1,186 @@
+\documentclass[11pt, titlepackage]{article}
+\usepackage[left=3cm, right=3cm]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[russian]{babel}
+\usepackage[T2A]{fontenc}
+\usepackage{cite}
+\usepackage{amssymb}
+\usepackage{amsmath}
+\usepackage{graphicx} 
+\usepackage{indentfirst}
+\usepackage{multirow}
+\usepackage{footnote}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{caption,tabularx,booktabs}
+\usepackage{tikz} 
+\usepackage{longtable}
+\usepackage{amsmath}
+% переименовываем  список литературы в "список используемой литературы"
+\addto\captionsrussian{\def\refname{\centering Список используемых источников}}
+\title{Функции потерь}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\newpage
+
+
+\begin{center}
+			{\section{Необходимые обозначения}}
+		\end{center}
+\begin{table}[h!]
+\caption{\label{tab:notation}Необходимые обозначения}
+\begin{center}
+\begin{tabular}{|l|p{300pt}|}
+\hline
+Обозначение & Расшифровка \\
+\hline
+ $G=(V,E)$ & Граф \\
+ $V =\{ v_i\}$& непустое множество вершин\\
+$|V| = n$ & Количество вершин в графе \\
+$E = \{ e_{ij}\}$& множество пар веришин, называемых ребрами\\
+$e_{ij}$& это реберо между вершиными $v_i$ и $v_j$\\
+$|E| = m$ & Количество рёбер в графе \\
+$\textbf{A}=\{ a_{ij}\}$ & Матрица смежности \\
+\textbf{I} & Единичная матрица \\
+\textbf{D} & Матрица степеней вершин графа \\
+\textbf{P} = $\textbf{D}^{-1}\textbf{A}$ & Матрица переходов \\
+$\textbf{C} = \{c_{i,j}\}$ & Матрица схожести вершин. В простом случае $\textbf{C}=\textbf{A}$ \\
+
+\hline
+$r$ & Размерность признакового пространства\\
+ $\textbf{X} $   & Матрица признаков вершин, размерностью $n\times r$ \\
+\hline
+$\mathcal{L} $ & Функция потерь \\
+\hline
+$d$ & Размерность эмбедингов\\
+$\Phi, \Theta$ & Матрицы эмбедингов, размерностью $n \times d$ \\
+$\Phi_i, \Theta_i$ & Ряд в матрицах эмбедингов. Исходный и контекстный эмбединги вершины $v_i$ \\
+\hline
+$N(v)$ &  Соседи вершины $v$ внутри окна определенного размера последовательности случайного блуждания \\
+\hline
+\end{tabular}
+\end{center}
+\end{table} 
+
+\newpage
+\begin{center}
+{\section{Таблица с функциями потерь}}
+\end{center}
+
+\begin{table}[ph]
+\caption{\label{tab:methods}Методы неконтролируемого обучения}
+\setlength{\extrarowheight}{10pt}
+\begin{tabular}{|p{60pt}|p{60pt}|p{180pt}|p{110pt}|}
+\hline
+ Метод & Контекстный эмбединг  & Функция потерь & Подходы к оптимизации, используемые методы \\
+\hline
+ Laplacian EigenMaps & $\times$  & $ \frac{1}{2} \sum_{i,j} |\Phi_i - \Phi_j|^2 a_{i,j} $ & Matrix Factorization\\
+\hline
+ Graph Factorization & $\times$  & $\frac{1}{2} \sum_{i,j} ( a_{i,j} - \Phi_i\cdot\Phi_j )^2\newline + \frac{\lambda}{2}\sum_i ||\Phi_i||^2$ & SGD with  \newline asynchronous \newline optimization (ASGD)\\
+\hline
+ HOPE &   \checkmark &$||\textbf{C} - \Phi \cdot\Theta||_F^2$, $C-$ может быть записана в разном виде, например для RootedPageRank, см. уравнение \ref{eqn:HOPERPR} & Matrix Factorization\\
+\hline
+ NetMF &      \checkmark  & $|| \log (\frac{vol(G)}{bT}(\sum_{r=1}^T \textbf{P}^r)\textbf{D}^{-1}) - \Phi \cdot \Theta||_F^2$\newline (значение параметров см. в описании к ур-ию \ref{eqn:NetMF}) &Matrix Factorization \\
+\hline
+ DeepWalk &   \checkmark  & $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} log \frac{\exp (\Theta_i \cdot \Phi_j)}{\sum_{v_k \in V} \exp (\Theta_k \cdot \Phi_j) } $, где $N(v)$ -- см. таблицу \ref{tab:notation}. В данном случае случайные блуждания фиксированной длины & SGD, ASGD.\newline  Hierarchical Softmax \\
+\hline
+ Node2Vec &  \checkmark      & $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} log \frac{\exp (\Theta_i \cdot \Phi_j)}{\sum_{v_k \in V} \exp (\Theta_k \cdot \Phi_j) } $\newline Случайные блуждания имеют два параметра - вероятноность перехода к вершинам, отвечающим за исследования локальной  и глобальной структур& SGD with negative Sampling \\
+
+\hline
+\end{tabular}
+\end{table} 
+
+\begin{table}
+\setlength{\extrarowheight}{10pt}
+\begin{tabular}{|p{60pt}|p{60pt}|p{180pt}|p{110pt}|}
+\hline
+ Struc2Vec&   \checkmark  & $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} log \frac{\exp (\Theta_i \cdot \Phi_j)}{\sum_{v_k \in V} \exp (\Theta_k \cdot \Phi_j) } $\newline Случайные блуждания строятся по контекстному графу, учитываемому структурную схожесть вершин & Hierarchical Softmax \\
+\hline
+ Seed. Эмбединги графов ! & $\times$ &  $ ||\textbf{X} - \hat{\textbf{X}}||_2^2$, где $\hat{\textbf{X}}$-- Реконструкция графа.  & Gradient descent, deep autoencoders\\
+\hline
+ App &  \checkmark  &  $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} \log\ \frac{1}{1+ exp(-\Theta_i \cdot \Phi_j)}$\newline для построения случайных последовательностей испольузется метод Monte-Carlo End-Point &Skip-Gram with \newline Negative Sampling   \\
+\hline
+ VERSE &  $\times$  & $-\sum_{i,j=1}^{n} sim_G(v_i,v_j) \log\frac{\exp (\Phi_i \cdot \Phi_j)}{\sum_{k=1}^n \exp (\Phi_i \cdot \Phi_k)}$ \newline $sim_G$ -- распределение схожести вершин графа. В случае PPR, $sim_G(v,\cdot)$ -- последняя вершина в одном случайном блуждании начатого с вершины v, в случаях других мер схожести, определяется уравнениями \ref{SR}, \ref{ADJ} &Gradient Descent, \newline Noise Constractive Estimations. \newline Negative Sampling  \\
+\hline
+ GraphSAGE &  $\times$  & $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} \log  \frac{1}{1+ exp(-\Phi_i \cdot \Phi_j)}$   & SGD, \newline  Negative Sampling  \\
+\hline
+ SDNE  &  $\times$ &    $|| (\hat{\textbf{A}} - \textbf{A}) \odot B||_F^2 + \alpha \sum_{v_i,v_j \in V} a_{i,j}||\Phi_i - \Phi_j||_2^2$, где $\odot$ -- произведение Адамара, $B$--матрицы смещений (biases). $\hat{\textbf{A}}$-- реконструкция матрицы смежности&  SGD, \newline Deep autoencoders\\
+\hline
+ LINE-1 & $\times$  & $- \sum_{v_i,v_j\in V} a_{ij}\log  \frac{1}{1+ exp(-\Phi_i \cdot \Phi_j)}$&  ASGD with Negative Sampling \\
+\hline LINE-2 & \checkmark & $ - \sum_{v_i,v_j\in V} a_{ij}\log \frac{\exp (\Phi_i \cdot \Theta_j)}{\sum_{v_k \in V} \exp (\Phi_i \cdot \Theta_k)}$& ASGD with Negative Sampling\\
+\hline
+\end{tabular}
+\end{table} 
+
+\newpage
+
+{\section{Замечания, идеи}}
+{\subsection{HOPE}}
+ В методе HOPE минимизируется $||\textbf{C} - \Phi \cdot\Theta||_F^2$. В данном случае элементы матрицы $c_{ij}$ отражают близость вершин $v_i,v_j$. $C$ можно представить в виде $C=\textbf{M}_g^{-1}\textbf{M}_l$, а матрицы $\textbf{M}_g,\textbf{M}_l$ отличаются для каждой из мер схожести. Рассмотрим:
+
+Rooted PageRank
+В данном случае $C_{i,j}^{RPR}-$ вероятность того, что случайное блуждание, начавшееся в вершине $i$ в steady state окажется в вершине $j$. При $\alpha$ -- равной  вероятности рандомного перехода к соседу:
+\begin{equation}\label{eqn:HOPERPR}
+\begin{aligned}
+\textbf{M}_g = \textbf{I}-\alpha \cdot \textbf{P},\\
+ \textbf{M}_l = (1-\alpha) \cdot \textbf{I}, 
+\end{aligned}
+\end{equation}
+То есть, чем меньше вероятность того, что i,j окажутся концами одного случайного блуждания в устойчивом состоянии, тем меньше скалярное поизведение соответствующих эмбеддингов, а значит сами эмбеддинги отдаляются. И наоборот. Чем больше вероятность того, что i,j окажутся концами одного случайного блуждания в устойчивом состоянии, тем больше скалярное поизведение соответствующих эмбеддингов, тем ближе друг к другу эти эмбеддинги.
+
+(?) Аналогия с функцией потерь в DeepWalk, если убрать softmax normalization (?)
+
+{\subsection{! NetMF!}}
+Каждая из четырех моделей: DeepWalk, LINE, PTE, Node2vec, выполняют неявную матричную факторизацию. Для каждой из обозначенных моделей выведены матричные формы, следующим образом:
+\begin{enumerate}
+\item В изначальной функции потерь делаются несколько замен обозначений  
+\item Так как функция потерь минимизируется по $\Phi^{T}\Theta$, то берется производная от $\mathcal{L}$ по $\Phi^{T} \Theta$ и приравнивается к нулю
+\item Ищутся корни. Итого находят выражение для $\Phi^{T} \Theta$. Обозначают для краткости $\Phi^{T} \Theta = \log (\textbf{M})$ 
+\item Но теперь стоит задача найти сами эмбеддинги, если известно их произведение
+\item В явном виде сложно найти, тогда минимизируем $||\log (\textbf{M}) - \Phi^{T}\Theta||$
+\item А решение данной минимизации будет приложение SVD к $\log (\textbf{M})$.
+\item  $\log (\textbf{M})= U_d \Sigma_d V_d^{T}$. 
+\item а оптимальные значения эмбедингов $\Phi = U_d \sqrt{\Sigma_d}$
+\end{enumerate} 
+
+Например, алгоритм DeepWalk экивалентен факторизации следующей матрицы:
+\begin{equation}\label{eqn:NetMF}
+\log (\frac{vol(G)}{T}(\sum_{r=1}^T \textbf{P}^r)\textbf{D}^{-1}) - \log(b)
+\end{equation}
+в данном случае $b$ негативных примеров для Negative Sampling, vol(G) - объем взвешенного графа (сумма степеней всех вершин), T - длина случайного блуждания, r - размер окна в DeepWalk.
+
+А алгоритм LINE эквивалентен факторизации матрицы:
+\begin{equation}\label{eqn:NetMF_LINE}
+\log (vol(G)D^{-1}AD) - \log(b)
+\end{equation}
+
+{\subsection{VERSE. Просто пояснения к методу, нет важных идей}}
+ VERSE \cite{VERSE} использует понятия схожести между вершинами и минимизируют расхождение Кульбака - Лейблера (KL) между  распределением схожести вершин в графе $sim_G$ и распределением схожести эмбедингов $sim_E$:
+\begin{equation}
+\sum_{v \in V} KL(sim_G(v,\cdot) || sim_E(v,\cdot))
+\end{equation}
+
+Также как и HOPE использует различные меры для распределения схожести в графе (PPR, SimRank, Adjacency similarity):
+
+\begin{enumerate}
+\item Personalized PageRank: один экзамепляр $sim_G(v,\cdot)$ это последняя вершина в одом случайном блуждании, начатом с вершины $v$.
+\item SimRank: мера структорной взаимосвязи двух вершин, основана на предположении, что схожие вершины связаны с дргуими схожими вершинами. Определяется рекурсивно:
+\begin{equation}\label{SR}
+sim_G^{SR} = \frac{C}{|I(u)| |I(v)|} \sum_{i=1}^{|I(u)|} \sum_{j=1}^{|I(v)|} sim_G^{SR}(I_i(u),I_j(v))
+\end{equation}
+$I(v)$ -- множество соседей вершины $v$, с ребрами, входящими в $v$, $C$ -- число между 0 и 1, геометрически обесценивает важность дальних узлов. 
+\item Adjacency similarity: если $Out(u)$ -- степень выходящих ребер из вершины u, то 
+\begin{equation}\label{ADJ}
+sim_G^{ADJ}(u,v) = \begin{cases}
+   1/Out(u) & \text{если} (u,v) \in E\\
+   0 & \text{иначе}
+ \end{cases}
+\end{equation}
+
+\end{enumerate}
+
+\end{document}
