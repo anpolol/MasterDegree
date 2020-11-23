@@ -1,4 +1,4 @@
-#Сэмплирование позитивных и негативных примеров  
+#http://localhost:8888/edit/Desktop/MasterDegree/Code/modules/sampling.py#Сэмплирование позитивных и негативных примеров  
 import torch
 from torch_cluster import random_walk
 from torch_geometric.utils import negative_sampling
@@ -15,50 +15,50 @@ try:
 except ImportError:
     random_walk = None
     
-class RWSampler():
-    def __init__(self, data, mask,device,walk_length=20,p=1,q=1):
-        super(RWSampler, self).__init__()
+class RWSampler(torch.utils.data.DataLoader):
+    def __init__(self, data, mask,device,walk_length=20,p=1,q=1,**kwargs):
         self.data = data
         self.device = device
         self.mask = mask
         self.p=p
         self.q=q
         self.walk_length = walk_length
-                  
-    def maskDataset(self):
+        
         row=[]
         col =[]
-        x_new = [j for j in range(len(self.data.x))]
-        x_new = torch.IntTensor(x_new)
-        x_new = x_new[self.mask]
+        self.x_new = [j for j in range(len(self.data.x))]
+        self.x_new = torch.IntTensor(self.x_new)
+        self.x_new = self.x_new[self.mask]
         for j, i in enumerate(self.data.edge_index[0]):
-            if i in x_new:
-                if self.data.edge_index[1][j] in x_new:
+            if i in self.x_new:
+                if self.data.edge_index[1][j] in self.x_new:
                         row.append(i)
                         col.append(self.data.edge_index[1][j])
         row = torch.tensor(row)
         row = row.to(self.device)
         col = torch.tensor(col)
         col = col.to(self.device)
-        #N = maybe_num_nodes(data.edge_index, data.num_nodes)
-        adj = SparseTensor(row=row, col=col, sparse_sizes=(140, 140)).to(self.device) #это edge_index для train
+        self.adj = SparseTensor(row=row, col=col, sparse_sizes=(len(self.x_new), len(self.x_new))).to(self.device) #это edge_index для train
         
         row2 = ((row.tolist()))
         col2 = ((col.tolist()))
 
-        a = []
-        a.append(row2)
-        a.append(col2)
-        a = torch.tensor(a)
-        return x_new, adj,a
+        self.a = []
+        self.a.append(row2)
+        self.a.append(col2)
+        self.a = torch.tensor(self.a)
+        node_idx = torch.arange(self.adj.sparse_size(0))
+        node_idx.view(-1).tolist()
+        super(RWSampler, self).__init__(node_idx, collate_fn=self.sample, **kwargs)
+
+        
     
     def pos_sample(self,batch):
             
             walks_per_node = 10
             context_size = 10
             batch = batch.repeat(walks_per_node) #так как в лоадере мы не меняли размер батча, по дефолту он раве 1, а значит мы повторили 10 раз одну вершину 
-            _,adj,_ = self.maskDataset()
-            rowptr,col,_=adj.csr()
+            rowptr,col,_=self.adj.csr()
             rowptr = rowptr.to(self.device)
             col = col.to(self.device)
 
@@ -74,11 +74,11 @@ class RWSampler():
 
 
     def neg_sample(self,batch):
-        _,_,a=self.maskDataset()
+        
         walks_per_node = 10
         num_negative_samples=1
         batch = batch.repeat(walks_per_node * num_negative_samples) 
-        neg_sam = structured_negative_sampling(a)
+        neg_sam = structured_negative_sampling(self.a)
         b = []
         b.append(neg_sam[0].tolist())
         c =neg_sam[2].tolist()
@@ -92,6 +92,4 @@ class RWSampler():
         if not isinstance(batch, torch.Tensor):
             batch = torch.tensor(batch, dtype=torch.long).to(self.device)
         return self.pos_sample(batch),self.neg_sample(batch)
-    def loader(self):
-        train_data,_,_= self.maskDataset()
-        return DataLoader(train_data,collate_fn=self.sample)
+  
