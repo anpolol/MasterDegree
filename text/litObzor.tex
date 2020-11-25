@@ -327,7 +327,7 @@ $P = \frac{\sum_{l\in L} TP(l)}{\sum_{l\in L} (TP(l)+FP(l))}$,   $R = \frac{\sum
 \hline
 случайных блужданиях  & Node2Vec &  \checkmark      & $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} log \frac{\exp (\Theta_i \cdot \Phi_j)}{\sum_{v_k \in V} \exp (\Theta_k \cdot \Phi_j) } $\newline Случаыные блуждания меют два параметра - вероятноность перехода к вершинам, отвечающим за исследования локальной  и глобальной структур& Negative Sampling \\
 \hline
-случайных блужданиях  & Struc2Vec&   \checkmark  & $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} log \frac{\exp (\Theta_i \cdot \Phi_j)}{\sum_{v_k \in V} \exp (\Theta_k \cdot \Phi_j) } $\newline СлучАйные блуждания строятся по контекстному графу (см ур.-я \ref{eqn:RandomWalkForStruc2Vec},\ref{eqn:RandomWalkForStruc2Vec2}), учитываемому структурную схожесть вершин & Hierarchical Softmax \\
+случайных блужданиях  & Struc2Vec&   \checkmark  & $- \sum_{v_j \in V} \sum_{v_i \in N(v_j)} log \frac{\exp (\Theta_i \cdot \Phi_j)}{\sum_{v_k \in V} \exp (\Theta_k \cdot \Phi_j) } $\newline Случайные блуждания строятся по контекстному графу (см ур.-я \ref{eqn:RandomWalkForStruc2Vec},\ref{eqn:RandomWalkForStruc2Vec2}), учитываемому структурную схожесть вершин & Hierarchical Softmax \\
 \hline
 случайных блужданиях  & Seed & $\times$ &     $ ||X - \hat{X}||_2^2$  & Deep autoencoders\\
 \hline
@@ -560,7 +560,7 @@ $y_i^{(K)}= \Phi_i$ -- и есть эмбединг вершины $v_i$. Пос
 \begin{equation}
 \mathcal{L}_{2nd} = ||(\hat{A} - A) \odot B||_F^2
 \end{equation}
-где $\odot$ -- произвдение Адамара, $B$--матрицы смещений (biases). $g $-- декодер. 
+где $\odot$ -- произведение Адамара, $B$--матрицы смещений (biases). $g $-- декодер. 
 
 Для того, чтобы учитывать локальную структуру (близости 1 порядка) строится функция потерь на основе Laplacian Eigenmaps -- похожие вершины в пространтсве эмбедингов также должны быть ближе:
 
