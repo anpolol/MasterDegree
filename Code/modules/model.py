@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 
 class Net(torch.nn.Module):
-    def __init__(self, dataset, mode='unsupervised',conv='GCN',loss_function='loss_from_SAGE',hidden_leyer=256):
+    def __init__(self, dataset, mode='unsupervised',conv='GCN',loss_function='loss_from_SAGE',hidden_layer=256,out_layer =128):
         super(Net, self).__init__()
         self.mode = mode
         self.conv=conv
@@ -13,22 +13,23 @@ class Net(torch.nn.Module):
         self.num_classes = dataset.num_classes
         self.loss_function = loss_function
         self.convs = torch.nn.ModuleList()
-        self.hidden_leyer =hidden_leyer 
+        self.hidden_layer =hidden_layer
+        self.out_layer = out_layer
     
         if self.mode=='unsupervised':
-            out_channels = 128
+            out_channels = self.out_layer
         elif self.mode=='supervised':
-            out_channels = num_classes
+            out_channels = self.num_classes
         
         if self.conv == 'GCN':
-            self.convs.append(GCNConv(self.num_features, self.hidden_leyer))
-            self.convs.append(GCNConv(self.hidden_leyer, out_channels))
+            self.convs.append(GCNConv(self.num_features, self.hidden_layer))
+            self.convs.append(GCNConv(self.hidden_layer, out_channels))
         if self.conv == 'SAGE':
-            self.convs.append(SAGEConv(self.num_features, self.hidden_leyer))
-            self.convs.append(SAGEConv(self.hidden_leyer, out_channels))
+            self.convs.append(SAGEConv(self.num_features, self.hidden_layer))
+            self.convs.append(SAGEConv(self.hidden_layer, out_channels))
         if self.conv == 'GAT':
-            self.convs.append(GATConv(self.num_features, self.hidden_leyer))
-            self.convs.append(GATConv(self.hidden_leyer, out_channels))
+            self.convs.append(GATConv(self.num_features, self.hidden_layer))
+            self.convs.append(GATConv(self.hidden_layer, out_channels))
                 
     def forward(self,x,adjs):
         
