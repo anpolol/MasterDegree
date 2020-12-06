@@ -274,12 +274,13 @@ $\gamma \sum_{r=1}^w (\textbf{P}^r  + \textbf{P$^\text{T}$}^r )$
 \sum_{i,j} c_{ij} \log(\frac{\exp(\Phi_i \cdot \Theta_j)}{\sum_{k\in V} (\exp(\Phi_i \cdot \Theta_k)) })
 \end{equation}
 С поправкой на нормализацию $\textbf{C}$.
-А матрица $C$ получена как описано в \ref{section:NetMF}. 
+А матрица $\textbf{C}$ получена по алгоритму описанному в \ref{section:NetMF}. 
 
 Итак, 
 \begin{equation}
 \frac{c_{ij}}{\sum_{u,v|c_{u,v}>0}c_{uv}} \rightarrow \frac{1}{2w} \sum_{r=1}^{w}(\frac{d_i}{\sum_i d_i}\cdot(\textbf{P}^r)_{(i,j)}+\frac{d_j}{\sum_i d_i}\cdot(\textbf{P}^r)_{(j,i)})
 \end{equation}
+Слагаемое $\frac{d_i}{\sum_{i}d_i}$ является начальным распределением, означающим вероятность того, что первая вершина в случайном блуждании именно $i$ 
 {\subsubsection{\textbf{C} для Node2Vec}}
 Вводится другая матрица переходов, учитывающая ''откуда'' пришла вершина:
 \begin{equation}
