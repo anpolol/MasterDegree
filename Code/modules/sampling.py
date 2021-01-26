@@ -1,7 +1,7 @@
 import torch
 from torch_cluster import random_walk
 from torch_geometric.utils import negative_sampling
-from torch_geometric.utils import structured_negative_sampling
+from torch_geometric.utils import structured_negative_sampling,batched_negative_sampling
 import numpy as np
 import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid
@@ -15,7 +15,7 @@ except ImportError:
     random_walk = None
     
 class RWSampler():
-    def __init__(self, data,device,walk_length=1,p=1,q=1,**kwargs):
+    def __init__(self, data,device,walk_length=1,p=1,q=1,walks_per_node=1, **kwargs):
         self.data = data
         self.device = 'cpu'
         self.mask = data.train_mask
@@ -44,12 +44,14 @@ class RWSampler():
         self.a.append(row2)
         self.a.append(col2)
         self.a = torch.tensor(self.a,dtype=torch.long) #это edge_index для train
+        
+        self.walks_per_node = walks_per_node
+        
         super(RWSampler, self).__init__()
     
     def pos_sample(self,batch):
-        walks_per_node = 1
-        context_size = 1
-        batch = batch.repeat(walks_per_node) #так как в лоадере мы не меняли размер батча, по дефолту он раве 1, а значит мы повторили walks_per_node раз одну вершину 
+        context_size = 10 if self.walk_length>=10 else self.walk_length
+        batch = batch.repeat(self.walks_per_node) #так как в лоадере мы не меняли размер батча, по дефолту он раве 1, а значит мы повторили walks_per_node раз одну вершину 
         rowptr,col,_=self.adj.csr()
         rowptr = rowptr.to(self.device)
         col = col.to(self.device)       
@@ -60,13 +62,15 @@ class RWSampler():
         num_walks_per_rw = 1 + self.walk_length + 1 - context_size
         for j in range(num_walks_per_rw):
              walks.append(rw[:, j:j + context_size]) #теперь у нас внутри walks лежат 12 матриц размерам 10*10
-        pos_batch = [int(item) for sublist in walks[1:] for item in sublist]
-        pos_batch = torch.tensor(pos_batch, dtype=torch.long)
-        return   pos_batch
-  
+        return  torch.cat(walks, dim=0)
+    
+
     def neg_sample(self,batch):
-        num_negative_samples=140
-        neg_batch = negative_sampling(self.a, num_negative_samples)
+        len_batch = len(batch)
+        num_negative_samples = 1
+        batch = batch.repeat(self.walks_per_node * num_negative_samples) 
+        neg_batch=batched_negative_sampling(self.a, batch, num_neg_samples=num_negative_samples)
+        neg_batch = neg_batch%len_batch
         return neg_batch
     
     

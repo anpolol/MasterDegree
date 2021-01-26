@@ -3,7 +3,7 @@ from torch_geometric.nn import GCNConv, SAGEConv,GATConv
 import torch.nn.functional as F
 from torch_geometric.data import NeighborSampler
 class Net(torch.nn.Module):
-    def __init__(self, dataset, device,mode='unsupervised',conv='GCN',loss_function='loss_from_SAGE',hidden_layer=256,out_layer =128):
+    def __init__(self, dataset, device,mode='unsupervised',conv='GCN',loss_function='DeepWalk',hidden_layer=256,out_layer =128):
         super(Net, self).__init__()
         self.mode = mode
         self.conv=conv
@@ -52,16 +52,22 @@ class Net(torch.nn.Module):
         elif self.mode=='supervised':
             return x.log_softmax(dim=-1)       
               
-    def loss(self,out, pos_idx,neg_idx):
-        if self.loss_function == 'loss_from_SAGE':
+    def loss(self,out, pos_rw,neg_rw):
+        if self.loss_function == 'DeepWalk':
             # Positive loss.
             pos_loss=0
-            pos_samples = out[pos_idx]
-            neg_samples = out[neg_idx[1]]
-            dot = (out * pos_samples).sum(dim=-1).view(-1)
+            start, rest = pos_rw[:, 0], pos_rw[:, 1:].contiguous()
+            h_start = out[start].view(pos_rw.size(0), 1,self.out_layer)
+            h_rest = out[rest.view(-1)].view(pos_rw.size(0), -1,self.out_layer)
+            dot = (h_start * h_rest).sum(dim=-1).view(-1)
             pos_loss = -torch.log(torch.sigmoid(dot)).mean()
+            
             # Negative loss
-            dot = (out[neg_idx[0]] * neg_samples).sum(dim=-1).view(-1)
+            
+            start, rest = neg_rw[:, 0], neg_rw[:, 1:].contiguous()
+            h_start =out[start].view(neg_rw.size(0), 1,self.out_layer)
+            h_rest =  out[rest.view(-1)].view(neg_rw.size(0), -1,self.out_layer)
+            dot = (h_start * h_rest).sum(dim=-1).view(-1)
             neg_loss = -torch.log(torch.sigmoid((-1)*dot)).mean()
             return pos_loss + neg_loss
     #loss function for supervised mode   
