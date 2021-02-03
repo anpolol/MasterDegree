@@ -13,44 +13,69 @@ try:
     random_walk = torch.ops.torch_cluster.random_walk
 except ImportError:
     random_walk = None
-    
-class RWSampler():
-    def __init__(self, data,device,walk_length=1,p=1,q=1,walks_per_node=1, **kwargs):
+from functools import reduce
+class Sampler():
+    def __init__(self, data,device, mask,loss_info,**kwargs):
         self.data = data
         self.device = 'cpu'
-        self.mask = data.train_mask
-        self.p=p
-        self.q=q
-        self.walk_length = walk_length
+        self.mask = mask
+        self.loss = loss_info
+        self.num_negative_samples=1
+        
+        if self.loss["loss var"] == "Random Walks":
+            self.p=self.loss["p"]
+            self.q=self.loss["q"]
+            self.walk_length =self.loss["walk length"]
+            self.walks_per_node = self.loss["walks per node"]
+            self.context_size = self.loss["context size"] if self.walk_length>=self.loss["context size"] else self.walk_length
+            self.num_negative_samples = self.loss["num negative samples"]
+            self.pos_sample = self.pos_sample_rw
+            self.neg_sample = self.neg_sample_rw
+            self.adj, self.a = self.edge_index_to_train()
+        elif self.loss["loss var"] == "Context Matrix":
+            self.pos_sample = self.pos_sample_adj
+            self.neg_sample = self.neg_sample_adj
+            if self.loss["C"] == "Adj":
+                self.A = self.edge_index_to_adj_train()
+            elif self.loss["C"] == "PPR":
+                Adg = self.edge_index_to_adj_train().type(torch.FloatTensor)
+                invD =torch.diag(1/sum(Adg.t()))
+                invD[torch.isinf(invD)] = 0
+                alpha = 0.7
+                self.A = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(Adg))) - alpha*torch.matmul(invD,Adg)))
+        super(Sampler, self).__init__()
+    
+    def edge_index_to_train(self):
         row=[]
         col =[]
-        self.x_new = [j for j in range(len(self.data.x))]
-        self.x_new = torch.IntTensor(self.x_new)
-        self.x_new = self.x_new[self.mask]
+        x_new=(torch.tensor(np.where(self.mask==True)[0],dtype=torch.int32))
         for j, i in enumerate(self.data.edge_index[0]):
-            if i in self.x_new:
-                if self.data.edge_index[1][j] in self.x_new:
+            if i in x_new:
+                if self.data.edge_index[1][j] in x_new:
                         row.append(i)
                         col.append(self.data.edge_index[1][j])
         row = torch.tensor(row)
         row = row.to(self.device)
         col = torch.tensor(col)
         col = col.to(self.device)
-        self.adj = SparseTensor(row=row, col=col, sparse_sizes=(len(self.x_new), len(self.x_new))).to(self.device) #это edge_index для train
-        row2 = ((row.tolist()))
-        col2 = ((col.tolist()))
-
-        self.a = []
-        self.a.append(row2)
-        self.a.append(col2)
-        self.a = torch.tensor(self.a,dtype=torch.long) #это edge_index для train
-        
-        self.walks_per_node = walks_per_node
-        
-        super(RWSampler, self).__init__()
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(len(x_new), len(x_new))).to(self.device) #это edge_index для train
+        row2 = row.tolist()
+        col2 = col.tolist()
+        a = []
+        a.append(row2)
+        a.append(col2)
+        a = torch.tensor(a,dtype=torch.long) #это edge_index для train
+        return adj, a   
+    def edge_index_to_adj_train(self): 
+        x_new=(torch.tensor(np.where(self.mask==True)[0],dtype=torch.int32))
+        A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long)
+        for j,i in enumerate(self.data.edge_index[0]):
+            if i in x_new:
+                if self.data.edge_index[1][j] in x_new:
+                    A[i][self.data.edge_index[1][j]]=1 
+        return A      
     
-    def pos_sample(self,batch):
-        context_size = 10 if self.walk_length>=10 else self.walk_length
+    def pos_sample_rw(self,batch):
         batch = batch.repeat(self.walks_per_node) #так как в лоадере мы не меняли размер батча, по дефолту он раве 1, а значит мы повторили walks_per_node раз одну вершину 
         rowptr,col,_=self.adj.csr()
         rowptr = rowptr.to(self.device)
@@ -59,22 +84,38 @@ class RWSampler():
         if not isinstance(rw, torch.Tensor):
             rw = rw[0]
         walks = []
-        num_walks_per_rw = 1 + self.walk_length + 1 - context_size
+        num_walks_per_rw = 1 + self.walk_length + 1 - self.context_size
+        
         for j in range(num_walks_per_rw):
-             walks.append(rw[:, j:j + context_size]) #теперь у нас внутри walks лежат 12 матриц размерам 10*10
+             walks.append(rw[:, j:j + self.context_size]) #теперь у нас внутри walks лежат 12 матриц размерам 10*1
         return  torch.cat(walks, dim=0)
-    
 
-    def neg_sample(self,batch):
+    def neg_sample_rw(self,batch):
         len_batch = len(batch)
-        num_negative_samples = 1
-        batch = batch.repeat(self.walks_per_node * num_negative_samples) 
-        neg_batch=batched_negative_sampling(self.a, batch, num_neg_samples=num_negative_samples)
+        batch = batch.repeat(self.walks_per_node * self.num_negative_samples) 
+        neg_batch=batched_negative_sampling(self.a, batch, num_neg_samples=self.num_negative_samples)
         neg_batch = neg_batch%len_batch
         return neg_batch
     
-    
+    def pos_sample_adj(self,batch):
+        batch = batch.tolist()
+        pos_batch=[]
+        for x in batch:
+            for j in range(len(self.A)):
+                if self.A[x][j] != torch.tensor(0):
+                    pos_batch.append([int(x),int(j),self.A[x][j]])
+        return torch.tensor(pos_batch)
+
+    def neg_sample_adj(self,batch):
+        len_batch = len(batch)
+        _,c=self.edge_index_to_train()
+        neg_batch=batched_negative_sampling(c, batch, num_neg_samples=self.num_negative_samples*len(batch))
+        neg_batch = neg_batch%len_batch
+        return neg_batch
+     
     def sample(self,batch):
         if not isinstance(batch, torch.Tensor):
             batch = torch.tensor(batch, dtype=torch.long).to(self.device)
         return self.pos_sample(batch),self.neg_sample(batch)
+
+   
