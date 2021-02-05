@@ -34,8 +34,17 @@ class Net(torch.nn.Module):
             self.loss = self.lossRandomWalks
         elif loss_function == "Context Matrix":
             self.loss = self.lossContextMatrix
+        elif loss_function == "Factorization":
+            self.loss = self.lossFactorization
 
-                
+    def edge_index_to_adj_train(self,mask): 
+        x_new=(torch.tensor(np.where(mask==True)[0],dtype=torch.int32))
+        A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long)
+        for j,i in enumerate(self.data.edge_index[0]):
+            if i in x_new:
+                if self.data.edge_index[1][j] in x_new:
+                    A[i][self.data.edge_index[1][j]]=1 
+        return A                 
     def forward(self,x,adjs):
         for i, (edge_index, _, size) in enumerate(adjs):
             x_target = x[:size[1]]  # Target nodes are always placed first.
@@ -58,8 +67,10 @@ class Net(torch.nn.Module):
         elif self.mode=='supervised':
             return x.log_softmax(dim=-1)       
               
-    def lossRandomWalks(self,out, pos_rw,neg_rw):
-            # Positive loss.
+    def lossRandomWalks(self,out, PosNegSamples):
+        (pos_rw,neg_rw) = PosNegSamples    
+        pos_rw,neg_rw = pos_rw.to(self.device),neg_rw.to(self.device)
+        # Positive loss.
         pos_loss=0
         start, rest = pos_rw[:, 0], pos_rw[:, 1:].contiguous()
         h_start = out[start].view(pos_rw.size(0), 1,self.out_layer)
@@ -73,8 +84,9 @@ class Net(torch.nn.Module):
         dot = (h_start * h_rest).sum(dim=-1).view(-1)
         neg_loss = -torch.log(torch.sigmoid((-1)*dot)).mean()
         return pos_loss + neg_loss
-    def lossContextMatrix(self,out, pos_rw,neg_rw):
-          # Negative loss
+    def lossContextMatrix(self,out, PosNegSamples):
+        (pos_rw,neg_rw) = PosNegSamples
+            # Negative loss
         start, rest = neg_rw[:, 0], neg_rw[:, 1:].contiguous()
         h_start =out[start].view(neg_rw.size(0), 1,self.out_layer)
         h_rest =  out[rest.view(-1)].view(neg_rw.size(0), -1,self.out_layer)
@@ -90,6 +102,10 @@ class Net(torch.nn.Module):
         pos_loss = -torch.log(torch.sigmoid(dot)).mean()
           
         return pos_loss + neg_loss
+    def lossFactorization(self,out,A):
+        lmbda=0.1
+        loss = 0.5*sum(sum((A- torch.matmul(out,out.t())) *(A- torch.matmul(out,out.t())))) + 0.5*lmbda*sum( (out*out).sum(dim=-1) )
+        return loss
         
     #loss function for supervised mode   
     def loss_sup(self, pred, label):
