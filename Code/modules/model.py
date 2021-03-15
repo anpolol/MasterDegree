@@ -1,13 +1,13 @@
 import torch
-from torch_geometric.nn import GCNConv, SAGEConv,GATConv
+from torch_geometric.nn import GCNConv, SAGEConv,GATConv, SGConv, ChebConv 
 import torch.nn.functional as F
 from torch_geometric.data import NeighborSampler
 class Net(torch.nn.Module):
-    def __init__(self, dataset, device,mode='unsupervised',conv='GCN',loss_function='PosNegSamples',hidden_layer=256,out_layer =128):
+    def __init__(self, dataset, device,mode='unsupervised',conv='GCN',loss_function='PosNegSamples',hidden_layer=64,out_layer =128,dropout = 0,num_layers=2):
         super(Net, self).__init__()
         self.mode = mode
         self.conv=conv
-        self.num_layers = 2
+        self.num_layers = num_layers
         self.num_features = dataset.num_features
         self.num_classes = dataset.num_classes
         self.data = dataset[0]
@@ -15,6 +15,7 @@ class Net(torch.nn.Module):
         self.convs = torch.nn.ModuleList()
         self.hidden_layer =hidden_layer
         self.out_layer = out_layer
+        self.dropout = dropout
         self.device=device
     
         if self.mode=='unsupervised':
@@ -23,20 +24,40 @@ class Net(torch.nn.Module):
             out_channels = self.num_classes
         if self.conv == 'GCN':
             self.convs.append(GCNConv(self.num_features, self.hidden_layer))
+            for i in range(1,self.num_layers-1):
+                self.convs.append(GCNConv(self.hidden_layer, self.hidden_layer))
             self.convs.append(GCNConv(self.hidden_layer, out_channels))
-        if self.conv == 'SAGE':
+        elif self.conv == 'SAGE':
             self.convs.append(SAGEConv(self.num_features, self.hidden_layer))
+            for i in range(1,self.num_layers-1):
+                self.convs.append(SAGEConv(self.hidden_layer, self.hidden_layer))
             self.convs.append(SAGEConv(self.hidden_layer, out_channels))
-        if self.conv == 'GAT':
+        elif self.conv == 'GAT':
             self.convs.append(GATConv(self.num_features, self.hidden_layer))
+            for i in range(1,self.num_layers-1):
+                self.convs.append(GATConv(self.hidden_layer, self.hidden_layer))
             self.convs.append(GATConv(self.hidden_layer, out_channels))
+        elif self.conv == 'SGC':
+            self.convs.append(SGConv(self.num_features, self.hidden_layer))
+            for i in range(1,self.num_layers-1):
+                self.convs.append(SGConv(self.hidden_layer, self.hidden_layer))
+            self.convs.append(SGConv(self.hidden_layer, out_channels))
+        elif self.conv == 'Cheb':
+            self.convs.append(ChebConv(self.num_features, self.hidden_layer,K=2))
+            for i in range(1,self.num_layers-1):
+                self.convs.append(ChebConv(self.hidden_layer, self.hidden_layer))
+            self.convs.append(ChebConv(self.hidden_layer, out_channels,K=2))
         if loss_function == "Random Walks":
             self.loss = self.lossRandomWalks
         elif loss_function == "Context Matrix":
             self.loss = self.lossContextMatrix
         elif loss_function == "Factorization":
             self.loss = self.lossFactorization
-
+            
+    def reset_parameters(self):
+        for conv in self.convs:
+            conv.reset_parameters()
+        
     def edge_index_to_adj_train(self,mask): 
         x_new=(torch.tensor(np.where(mask==True)[0],dtype=torch.int32))
         A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long)
@@ -51,17 +72,20 @@ class Net(torch.nn.Module):
             x = self.convs[i]((x,x_target), edge_index)
             if i != self.num_layers - 1:
                 x = F.relu(x)
-                x = F.dropout(x, p=0.5, training=self.training)
+                x = F.dropout(x, p=self.dropout, training=self.training)
         if self.mode=='unsupervised':
             return x
         elif self.mode=='supervised':
             return x.log_softmax(dim=1)
         
-    def inference(self,data): 
+    def inference(self,data,dp=0): 
+        
         x, edge_index, edge_weight = data.x, data.edge_index, data.edge_attr
-        x = F.relu(self.convs[0](x, edge_index))
-        x = F.dropout(x, p=0.5, training=self.training)
-        x = self.convs[1](x, edge_index, edge_weight)
+        for i, conv in enumerate(self.convs):
+            x = conv(x, edge_index)
+            if i != self.num_layers - 1:
+                x = x.relu()
+                x = F.dropout(x, p=dp, training=self.training)
         if self.mode=='unsupervised':
             return x
         elif self.mode=='supervised':
