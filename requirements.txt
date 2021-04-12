@@ -6,7 +6,7 @@ torch-scatter==2.0.5
 torch-sparse==0.6.8
 torch-spline-conv==1.2.0
 torchaudio==0.7.2
-torchvision==0.9.1+cu101
+torchvision==0.8.2+cu101
 matplotlib==3.3.3
 optuna==2.6.0
 numpy==1.19.5
