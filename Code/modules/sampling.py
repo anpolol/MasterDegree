@@ -1,19 +1,21 @@
 import torch
 from torch_cluster import random_walk
-from torch_geometric.utils import negative_sampling
 from torch_geometric.utils import structured_negative_sampling,batched_negative_sampling
 import numpy as np
+from modules.negativeSampling import NegativeSampler
 import torch_geometric.transforms as T
 from torch_geometric.datasets import Planetoid
 from torch_sparse import SparseTensor
 from torch.utils.data import DataLoader
 from torch_geometric.utils.num_nodes import maybe_num_nodes
+from torch_cluster import random_walk
 try:
     import torch_cluster  # noqa
-    random_walk = torch.ops.torch_cluster.random_walk
+    RW = torch.ops.torch_cluster.random_walk
 except ImportError:
-    random_walk = None
+    RW = None
 from functools import reduce
+from torch_geometric.utils import subgraph 
 class Sampler():
     def __init__(self, data,device, mask,loss_info,**kwargs):
         self.data = data
@@ -21,7 +23,7 @@ class Sampler():
         self.mask = mask
         self.loss = loss_info
         self.num_negative_samples=1
-        
+        self.NS = NegativeSampler(self.data, self.device)
         if self.loss["loss var"] == "Random Walks":
             self.p=self.loss["p"]
             self.q=self.loss["q"]
@@ -31,7 +33,6 @@ class Sampler():
             self.num_negative_samples = self.loss["num negative samples"]
             self.pos_sample = self.pos_sample_rw
             self.neg_sample = self.neg_sample_rw
-            self.adj, self.a = self.edge_index_to_train(self.mask)
         elif self.loss["loss var"] == "Context Matrix":
             self.pos_sample = self.pos_sample_adj
             self.neg_sample = self.neg_sample_adj
@@ -39,28 +40,6 @@ class Sampler():
             pass
         super(Sampler, self).__init__()
     
-    def edge_index_to_train(self,mask):
-        row=[]
-        col =[]
-        x_new=(torch.tensor(np.where(mask==True)[0],dtype=torch.int32))
-        
-        for j, i in enumerate(self.data.edge_index[0]):
-            if i in x_new:
-                if self.data.edge_index[1][j] in x_new:
-                        row.append(i)
-                        col.append(self.data.edge_index[1][j])
-        row = torch.tensor(row)
-        row = row.to(self.device)
-        col = torch.tensor(col)
-        col = col.to(self.device)
-        adj = SparseTensor(row=row, col=col, sparse_sizes=(len(x_new), len(x_new))).to(self.device) #это edge_index для train
-        row2 = row.tolist()
-        col2 = col.tolist()
-        a = []
-        a.append(row2)
-        a.append(col2)
-        a = torch.tensor(a,dtype=torch.long) #это edge_index для train
-        return adj, a   
     def edge_index_to_adj_train(self,mask): 
         x_new=(torch.tensor(np.where(mask==True)[0],dtype=torch.int32))
         A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long)
@@ -71,14 +50,22 @@ class Sampler():
         return A      
     
     def pos_sample_rw(self,batch):
-        batch = batch.repeat(self.walks_per_node) #так как в лоадере мы не меняли размер батча, по дефолту он раве 1, а значит мы повторили walks_per_node раз одну вершину 
-        mask = torch.tensor([False]*len(self.data.x))
-        mask[batch] = True
-        adj,_ = self.edge_index_to_train(mask)
-        rowptr,col,_=adj.csr()
-        rowptr = rowptr.to(self.device)
-        col = col.to(self.device)       
-        rw = random_walk(rowptr, col, batch,  self.walk_length, self.p, self.q) #построили по нашим row,col. по одному рандом волку размером walk_length из каждой вершины в батче 
+        len_batch = len(batch) 
+        nodes = batch.numpy().tolist()
+        a,_ = subgraph(nodes, self.data.edge_index)
+        row,col=a 
+        row = row.to(self.device)
+        col = col.to(self.device) 
+        start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
+        start = start.repeat(self.walks_per_node)
+       
+        if self.loss['Name'] == 'Node2Vec':
+            adj = SparseTensor(row=row%len_batch, col=col%len_batch, sparse_sizes=(len_batch, len_batch))
+            
+            rowptr, col, _ = adj.csr()
+            rw = RW(rowptr, col, start%len_batch, self.walk_length, self.p, self.q)
+        else:
+            rw = random_walk(row, col, start,  walk_length = self.walk_length) #построили по нашим row,col. по одному рандом волку размером walk_length из каждой вершины в батче 
         if not isinstance(rw, torch.Tensor):
             rw = rw[0]
         walks = []
@@ -86,17 +73,16 @@ class Sampler():
         
         for j in range(num_walks_per_rw):
              walks.append(rw[:, j:j + self.context_size]) #теперь у нас внутри walks лежат 12 матриц размерам 10*1
-        return  torch.cat(walks, dim=0)
+        return  (torch.cat(walks, dim=0)%len_batch)
+    
+
 
     def neg_sample_rw(self,batch):
         len_batch = len(batch)
-        mask = torch.tensor([False]*len(self.data.x))
-        mask[batch] = True
-        _,c=self.edge_index_to_train(mask)
         batch = batch.repeat(self.walks_per_node * self.num_negative_samples) 
-        neg_batch=batched_negative_sampling(c, batch, num_neg_samples=self.num_negative_samples)
-        neg_batch = neg_batch%len_batch
-        return neg_batch
+        #print(c, batch,self.num_negative_samples)
+        neg_batch = self.NS.negative_sampling(batch,num_negative_samples = self.num_negative_samples)
+        return neg_batch%len_batch
     
     def pos_sample_adj(self,batch):
         batch = batch.tolist()
@@ -121,13 +107,9 @@ class Sampler():
 
     def neg_sample_adj(self,batch):
         len_batch = len(batch)
-        mask = torch.tensor([False]*len(self.data.x))
-        mask[batch] = True
-        _,c=self.edge_index_to_train(mask)
-        neg_batch=batched_negative_sampling(c, batch,num_neg_samples=self.num_negative_samples)
-        neg_batch = neg_batch%len_batch
-        return neg_batch
-     
+        neg_batch=self.NS.negative_sampling(batch,num_negative_samples=self.num_negative_samples)
+        return neg_batch%len_batch
+   
     def sample(self,batch):
         if not isinstance(batch, torch.Tensor):
             batch = torch.tensor(batch, dtype=torch.long).to(self.device)

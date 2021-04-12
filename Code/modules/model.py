@@ -14,7 +14,7 @@ class Net(torch.nn.Module):
         self.loss_function = loss_function
         self.convs = torch.nn.ModuleList()
         self.hidden_layer =hidden_layer
-        self.out_layer = out_layer
+        self.out_layer = 2#out_layer
         self.dropout = dropout
         self.device=device
     
@@ -23,20 +23,32 @@ class Net(torch.nn.Module):
         elif self.mode=='supervised':
             out_channels = self.num_classes
         if self.conv == 'GCN':
-            self.convs.append(GCNConv(self.num_features, self.hidden_layer))
-            for i in range(1,self.num_layers-1):
-                self.convs.append(GCNConv(self.hidden_layer, self.hidden_layer))
-            self.convs.append(GCNConv(self.hidden_layer, out_channels))
+            if self.num_layers == 1:
+                self.convs.append(GCNConv(self.num_features, out_channels))
+            else:
+                self.convs.append(GCNConv(self.num_features, self.hidden_layer))
+                for i in range(1,self.num_layers-1):
+                    self.convs.append(GCNConv(self.hidden_layer, self.hidden_layer))
+                self.convs.append(GCNConv(self.hidden_layer, out_channels))
         elif self.conv == 'SAGE':
-            self.convs.append(SAGEConv(self.num_features, self.hidden_layer))
-            for i in range(1,self.num_layers-1):
-                self.convs.append(SAGEConv(self.hidden_layer, self.hidden_layer))
-            self.convs.append(SAGEConv(self.hidden_layer, out_channels))
+            
+            if self.num_layers == 1:
+                self.convs.append(SAGEConv(self.num_features, out_channels))
+            else:
+                self.convs.append(SAGEConv(self.num_features, self.hidden_layer))
+                for i in range(1,self.num_layers-1):
+                    self.convs.append(SAGEConv(self.hidden_layer, self.hidden_layer))
+                self.convs.append(SAGEConv(self.hidden_layer, out_channels))
+            
+            
         elif self.conv == 'GAT':
-            self.convs.append(GATConv(self.num_features, self.hidden_layer))
-            for i in range(1,self.num_layers-1):
-                self.convs.append(GATConv(self.hidden_layer, self.hidden_layer))
-            self.convs.append(GATConv(self.hidden_layer, out_channels))
+            if self.num_layers == 1:
+                self.convs.append(GATConv(self.num_features, out_channels))
+            else: 
+                self.convs.append(GATConv(self.num_features, self.hidden_layer))
+                for i in range(1,self.num_layers-1):
+                    self.convs.append(GATConv(self.hidden_layer, self.hidden_layer))
+                self.convs.append(GATConv(self.hidden_layer, out_channels))
         elif self.conv == 'SGC':
             self.convs.append(SGConv(self.num_features, self.hidden_layer))
             for i in range(1,self.num_layers-1):
@@ -53,6 +65,7 @@ class Net(torch.nn.Module):
             self.loss = self.lossContextMatrix
         elif loss_function == "Factorization":
             self.loss = self.lossFactorization
+        self.reset_parameters()
             
     def reset_parameters(self):
         for conv in self.convs:
@@ -127,11 +140,12 @@ class Net(torch.nn.Module):
           
         return pos_loss + neg_loss
     def lossFactorization(self,out,A):
-        lmbda=0.1
-        loss = 0.5*sum(sum((A- torch.matmul(out,out.t())) *(A- torch.matmul(out,out.t())))) + 0.5*lmbda*sum( (out*out).sum(dim=-1) )
+        lmbda=10
+        loss = 0.5*sum(sum((A- torch.matmul(out,out.t())) *(A- torch.matmul(out,out.t())))) + 0.5*lmbda*sum(sum(out*out))
         return loss
         
     #loss function for supervised mode   
     def loss_sup(self, pred, label):
         return F.nll_loss(pred, label)
+    
     
