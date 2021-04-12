@@ -1,0 +1,13 @@
+torch==1.7.1+cpu
+torch-cluster==1.5.8
+torch-geometric==1.6.3
+torch-scatter==2.0.5
+torch-sparse==0.6.8
+torch-spline-conv==1.2.0
+torchaudio==0.7.2
+torchvision==0.8.2+cpu
+matplotlib==3.3.3
+optuna==2.6.0
+numpy==1.19.5
+catboost==0.24.4
+scikit-learn==0.24.1
