@@ -40,13 +40,14 @@ class Sampler():
             pass
         super(Sampler, self).__init__()
     
-    def edge_index_to_adj_train(self,mask): 
+    def edge_index_to_adj_train(self,mask,batch): 
         x_new=(torch.tensor(np.where(mask==True)[0],dtype=torch.int32))
         A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long)
+      #  print(len(x_new),x_new)
         for j,i in enumerate(self.data.edge_index[0]):
             if i in x_new:
                 if self.data.edge_index[1][j] in x_new:
-                    A[i][self.data.edge_index[1][j]]=1 
+                    A[i%len(batch)][self.data.edge_index[1][j]%len(batch)]=1 
         return A      
     
     def pos_sample_rw(self,batch):
@@ -92,9 +93,9 @@ class Sampler():
         mask[batch] = True
         
         if self.loss["C"] == "Adj":
-                A = self.edge_index_to_adj_train(mask)
+                A = self.edge_index_to_adj_train(mask,batch)
         elif self.loss["C"] == "PPR":
-                Adg = self.edge_index_to_adj_train(mask).type(torch.FloatTensor)
+                Adg = self.edge_index_to_adj_train(mask,batch).type(torch.FloatTensor)
                 invD =torch.diag(1/sum(Adg.t()))
                 invD[torch.isinf(invD)] = 0
                 alpha = 0.7
@@ -102,14 +103,14 @@ class Sampler():
              
         for x in batch:
             for j in range(len(A)):
-                if A[x][j] != torch.tensor(0):
-                    pos_batch.append([int(x),int(j),A[x][j]])
+                if A[x%len(batch)][j] != torch.tensor(0):
+                    pos_batch.append([int(x%677),int(j),A[x%len(batch)][j]])
         return torch.tensor(pos_batch)
 
     def neg_sample_adj(self,batch):
         len_batch = len(batch)
         a,_=subgraph(batch.tolist(),self.data.edge_index)
-        neg_batch=self.NS.negative_sampling(batch,num_neg_samples=self.num_negative_samples)
+        neg_batch=self.NS.negative_sampling(batch,num_negative_samples=self.num_negative_samples)
         return neg_batch%len_batch
    
     def sample(self,batch):

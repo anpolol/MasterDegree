@@ -70,15 +70,7 @@ class Net(torch.nn.Module):
     def reset_parameters(self):
         for conv in self.convs:
             conv.reset_parameters()
-        
-    def edge_index_to_adj_train(self,mask): 
-        x_new=(torch.tensor(np.where(mask==True)[0],dtype=torch.int32))
-        A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long)
-        for j,i in enumerate(self.data.edge_index[0]):
-            if i in x_new:
-                if self.data.edge_index[1][j] in x_new:
-                    A[i][self.data.edge_index[1][j]]=1 
-        return A                 
+                   
     def forward(self,x,adjs):
         for i, (edge_index, _, size) in enumerate(adjs):
             x_target = x[:size[1]]  # Target nodes are always placed first.
@@ -133,6 +125,7 @@ class Net(torch.nn.Module):
         pos_loss=0
         start, rest = pos_rw[:, 0].type(torch.LongTensor), pos_rw[:, 1].contiguous().type(torch.LongTensor)
         weight = pos_rw[:,2]
+        #print(
         h_start = out[start].view(pos_rw.size(0), 1,self.out_layer)
         h_rest = out[rest.view(-1)].view(pos_rw.size(0), -1,self.out_layer)
         dot = weight*((h_start * h_rest).sum(dim=-1)).view(-1)
