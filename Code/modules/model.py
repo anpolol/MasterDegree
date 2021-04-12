@@ -14,7 +14,7 @@ class Net(torch.nn.Module):
         self.loss_function = loss_function
         self.convs = torch.nn.ModuleList()
         self.hidden_layer =hidden_layer
-        self.out_layer = 2#out_layer
+        self.out_layer = out_layer
         self.dropout = dropout
         self.device=device
     
@@ -147,5 +147,4 @@ class Net(torch.nn.Module):
     #loss function for supervised mode   
     def loss_sup(self, pred, label):
         return F.nll_loss(pred, label)
-    
     

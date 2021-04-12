@@ -79,6 +79,7 @@ class Sampler():
 
     def neg_sample_rw(self,batch):
         len_batch = len(batch)
+        a,_=subgraph(batch.tolist(),self.data.edge_index)
         batch = batch.repeat(self.walks_per_node * self.num_negative_samples) 
         #print(c, batch,self.num_negative_samples)
         neg_batch = self.NS.negative_sampling(batch,num_negative_samples = self.num_negative_samples)
@@ -107,7 +108,8 @@ class Sampler():
 
     def neg_sample_adj(self,batch):
         len_batch = len(batch)
-        neg_batch=self.NS.negative_sampling(batch,num_negative_samples=self.num_negative_samples)
+        a,_=subgraph(batch.tolist(),self.data.edge_index)
+        neg_batch=self.NS.negative_sampling(batch,num_neg_samples=self.num_negative_samples)
         return neg_batch%len_batch
    
     def sample(self,batch):
