@@ -1,5 +1,4 @@
 torch==1.7.1+cu101
-pPython==3.7.7
 torch-cluster==1.5.8
 torch-geometric==1.6.3
 torch-scatter==2.0.5
