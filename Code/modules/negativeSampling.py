@@ -16,65 +16,41 @@ class NegativeSampler():
         self.data = data
         self.device = 'cpu'
         super(NegativeSampler, self).__init__()
-    
-    def edge_index_to_train(self,mask):
-        row=[]
-        col =[]
-        x_new=(torch.tensor(np.where(mask==True)[0],dtype=torch.int32))
-        for j, i in enumerate(self.data.edge_index[0]):
-            if i in x_new:
-                if self.data.edge_index[1][j] in x_new:
-                        row.append(i)
-                        col.append(self.data.edge_index[1][j])
-        row = torch.tensor(row)
-        row = row.to(self.device)
-        col = torch.tensor(col)
-        col = col.to(self.device)
-        
-        adj = SparseTensor(row=row, col=col, sparse_sizes=(len(x_new), len(x_new))).to(self.device) #это edge_index для train
-        
-        row2 = row.tolist()
-        col2 = col.tolist()
-        a = []
-        a.append(row2)
-        a.append(col2)
-        a = torch.tensor(a,dtype=torch.long) #это edge_index для train
-        
-        return adj, a   
-    def not_less_than(self,k, l):
-        if len(l) == 0:
-            return l
-        if len(l) >= k:
-            return random.choices(l,k=k)#l[:k]
-        return not_less_than(k, l*2)
-    def adj_list(self,edge_index):
-        f = dict()
+  
+    def not_less_than(self,num_negative_samples, all_negative_samples):
+        if len(all_negative_samples) == 0:
+            return all_negative_samples
+        if len(all_negative_samples) >= k:
+            return random.choices(all_negative_samples,k=num_negative_samples)#l[:k]
+        return not_less_than(num_negative_samples, all_negative_samples*2)
+    def adj_list(self,edge_index): #считаем список рёбер из edge_index 
+        Adj_list = dict()
         for x in list(zip(edge_index[0].tolist(), edge_index[1].tolist())):
-            if (x[0] in f):
-                f[x[0]].append(x[1]) 
+            if (x[0] in Adj_list):
+                Adj_list[x[0]].append(x[1]) 
             else:
-                f[x[0]] = [x[1]]
-        return f
+                Adj_list[x[0]] = [x[1]]
+        return Adj_list
     def torch_list(self,adj_list):
         line = list()
         other_line = list()
-        for k, v in adj_list.items(): 
-            line += [k] * len(v)
-            other_line += v
+        for node, neghbors in adj_list.items(): 
+            line += [node] * len(neghbors)
+            other_line += neghbors
         return torch.transpose((torch.tensor([line, other_line])),0,1)
     def negative_sampling(self, batch, num_negative_samples):
        # mask = torch.tensor([False]*len(self.data.x))
         #mask[batch] = True
         #_,a = self.edge_index_to_train(mask)
         a,_ = subgraph(batch,self.data.edge_index)
-        f = self.adj_list(a)
+        Adj = self.adj_list(a) 
         g = dict()
-        l = batch.tolist()
-        for e in l:
-            g[e] = l
-        for k, v in f.items():
-            g[k] = list(set(l) - set(v))
-        for k, v in g.items(): 
-            g[k] = self.not_less_than(num_negative_samples, g[k])
+        batch = batch.tolist()
+        for node in batch:
+            g[node] = batch
+        for node, neghbors in Adj.items():
+            g[node] = list(set(batch) - set(neghbors)) #тут все элементы которые не являются соседянями, но при этом входят в батч 
+        for node, neg_elem in g.items(): 
+            g[node] = self.not_less_than(num_negative_samples, g[node]) #если просят конкретное число негативных примеров, надо либо обрезать либо дублировать 
         return self.torch_list(g)
  

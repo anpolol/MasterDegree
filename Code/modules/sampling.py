@@ -18,33 +18,14 @@ except ImportError:
     RW = None
 from functools import reduce
 from torch_geometric.utils import subgraph 
+
 class Sampler():
     def __init__(self, data,device, mask,loss_info,**kwargs):
         self.device = 'cpu'
         self.data = data.to(self.device)
         self.mask = mask
-        self.loss = loss_info
-
         self.NS = NegativeSampler(self.data, self.device)
-        if self.loss["loss var"] == "Random Walks":
-            self.p=self.loss["p"]
-            self.q=self.loss["q"]
-            self.walk_length =self.loss["walk length"]
-            self.walks_per_node = self.loss["walks per node"]
-            self.context_size = self.loss["context size"] if self.walk_length>=self.loss["context size"] else self.walk_length
-            self.num_negative_samples = self.loss["num negative samples"]
-            self.pos_sample = self.pos_sample_rw
-            self.neg_sample = self.neg_sample_rw
-        elif self.loss["loss var"] == "Context Matrix":
-            if self.loss["C"] == "PPR":
-                self.alpha = kwargs["alpha"]
-            self.num_negative_samples = self.loss["num negative samples"]
-            self.pos_sample = self.pos_sample_adj
-            self.neg_sample = self.neg_sample_adj
-        elif self.loss["loss var"] == "Factorization":
-            self.alpha = kwargs["alpha"]
-        elif self.loss["loss var"] =="Laplacian EigenMaps":
-            pass
+        self.loss = loss_info
         super(Sampler, self).__init__()
     
     def edge_index_to_adj_train(self,mask,batch): 
@@ -66,23 +47,46 @@ class Sampler():
          #           A[j][(x_new==self.data.edge_index[1][k]).nonzero(as_tuple =True)[0]] = 1    
         return A      
     
-    def pos_sample_rw(self,batch):
+    def sample(self,batch,**kwargs):
+         pass
+        
+class SamplerRandomWalk(Sampler):
+    def __init__(self, data,device, mask,loss_info,**kwargs):
+            Sampler.__init__(self, data,device, mask,loss_info,**kwargs)
+            self.loss = loss_info
+            self.p=self.loss["p"]
+            self.q=self.loss["q"]
+            self.walk_length =self.loss["walk_length"]
+            self.walks_per_node = self.loss["walks_per_node"]
+            self.context_size = self.loss["context_size"] if self.walk_length>=self.loss["context_size"] else self.walk_length
+            self.num_negative_samples = self.loss["num_negative_samples"]
+           # super(Sampler,self,__init__)
+    def sample(self,batch,**kwargs):
+        if not isinstance(batch, torch.Tensor):
+            batch = torch.tensor(batch, dtype=torch.long).to(self.device)
+        return (self.pos_sample(batch),self.neg_sample(batch))
+    def pos_sample(self,batch):
+        d = datetime.now()
+        device = torch.device('cuda')
         len_batch = len(batch) 
         nodes = batch.numpy().tolist()
         a,_ = subgraph(nodes, self.data.edge_index)
         row,col=a 
-        row = row.to(self.device)
-        col = col.to(self.device) 
+        row = row.to(device)
+        col = col.to(device) 
         start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
-        start = start.repeat(self.walks_per_node)
+        start = start.repeat(self.walks_per_node).to(device)
         if self.loss['Name'] == 'Node2Vec':
             adj = SparseTensor(row=row%len_batch, col=col%len_batch, sparse_sizes=(len_batch, len_batch))
             
             rowptr, col, _ = adj.csr()
+            #rw = adj.randint(start%len_batch) 
             rw = RW(rowptr, col, start%len_batch, self.walk_length, self.p, self.q)
         else:
+            adj = SparseTensor(row=row%len_batch, col=col%len_batch, sparse_sizes=(len_batch, len_batch)).to('cuda')
+            rw = adj.random_walk(start.flatten(), walk_length = self.walk_length)
             
-            rw = random_walk(row, col, start,  walk_length = self.walk_length) #построили по нашим row,col. по одному рандом волку размером walk_length из каждой вершины в батче 
+            #rw = random_walk(row, col, start,  walk_length = self.walk_length)
         if not isinstance(rw, torch.Tensor):
             rw = rw[0]
         walks = []
@@ -92,9 +96,7 @@ class Sampler():
              walks.append(rw[:, j:j + self.context_size]) #теперь у нас внутри walks лежат 12 матриц размерам 10*1
         return  (torch.cat(walks, dim=0)%len_batch)
     
-
-
-    def neg_sample_rw(self,batch):
+    def neg_sample(self,batch):
         len_batch = len(batch)
         a,_=subgraph(batch.tolist(),self.data.edge_index)
         batch = batch.repeat(self.walks_per_node * self.num_negative_samples) 
@@ -102,23 +104,43 @@ class Sampler():
         neg_batch = self.NS.negative_sampling(batch,num_negative_samples = self.num_negative_samples)
         return neg_batch%len_batch
     
-    def pos_sample_adj(self,batch,**kwargs):
+class SamplerContextMatrix(Sampler):
+    def __init__(self, data,device, mask,loss_info,**kwargs):
+            Sampler.__init__(self, data,device, mask,loss_info,**kwargs)
+            self.loss = loss_info
+            if self.loss["C"] == "PPR":
+                self.alpha = kwargs["alpha"]
+            self.num_negative_samples = self.loss["num_negative_samples"]
+            self.num_negative_samples = self.loss["num_negative_samples"]
+            #super(SamplerContextMatrix,self,__init__)
+    def sample(self,batch,**kwargs):
+        if not isinstance(batch, torch.Tensor):
+            batch = torch.tensor(batch, dtype=torch.long).to(self.device)
+        return (self.pos_sample(batch),self.neg_sample(batch))
+    def pos_sample(self,batch,**kwargs):
         d_pb =datetime.now()
-        batch = batch.tolist()
+        device = torch.device('cuda')
+        batch = batch
         pos_batch=[]
         mask = torch.tensor([False]*len(self.data.x))
-        mask[batch] = True
+        mask[batch.tolist()] = True
         d = datetime.now()
         if self.loss["C"] == "Adj" and self.loss["Name"] == "LINE":
-                A = self.edge_index_to_adj_train(mask,batch)
+                A = self.edge_index_to_adj_train(mask,batch.tolist())
         elif self.loss["C"] == "Adj" and self.loss["Name"] == "VERSE_Adj":
-                Adj = self.edge_index_to_adj_train(mask,batch)
+                Adj = self.edge_index_to_adj_train(mask,batch.tolist())
                 A = (Adj / sum(Adj)).t()
                 A[torch.isinf(A)] = 0
                 A[torch.isnan(A)] = 0
         elif self.loss["C"] == "SR":
-                Adj = self.edge_index_to_adj_train(mask,batch)
-                A = self.find_sim_rank_for_batch(Adj)
+                #Adj = self.edge_index_to_adj_train(mask,batch)
+                Adj, _ = subgraph(batch.tolist(),self.data.edge_index) 
+                row,col= Adj 
+                row = row.to(device)
+                col = col.to(device)
+                ASparse = SparseTensor(row=row%len(batch), col=col%len(batch), sparse_sizes=(len(batch), len(batch)))
+            
+                A = self.find_sim_rank_for_batch_torch(batch,ASparse,device)
                         
         elif self.loss["C"] == "PPR":
                 Adg = self.edge_index_to_adj_train(mask,batch).type(torch.FloatTensor)
@@ -149,21 +171,23 @@ class Sampler():
         pos_batch  = torch.tensor(pos_batch)
         return pos_batch
 
-    def neg_sample_adj(self,batch):
+    def neg_sample(self,batch):
         d_nb = datetime.now()
         len_batch = len(batch)
         a,_=subgraph(batch.tolist(),self.data.edge_index)
         neg_batch=self.NS.negative_sampling(batch,num_negative_samples=self.num_negative_samples)
        # print('neg batch sampling ', datetime.now() - d_nb)
         return neg_batch%len_batch
-    def find_sim_rank_for_batch(self,Adj):
+    def find_sim_rank_for_batch(self,batch,Adj):
                 r = 100
                 t = 10
                 c = torch.sqrt(torch.tensor(0.6))
                 ## approx with SARW
                 
-                A = torch.zeros(len(Adj),len(Adj))
+                A = torch.zeros(len(Adj),len(Adj)).to('cuda')
                 for u in range(len(Adj)):
+                    print(u)
+                    d = datetime.now()
                     for nei in range(len(Adj)):
                         prob_i =np.zeros((t))
                         for k in range(r):
@@ -172,18 +196,18 @@ class Sampler():
                             pi_v = [nei]
                             if len((Adj[pi_v[0]] == 1).nonzero(as_tuple=True)[0])>0 and len((Adj[pi_u[0]] == 1).nonzero(as_tuple=True)[0])>0:
                                 i =0
-                                pi_u.append(random.choice(((Adj[pi_u[i]] == 1).nonzero(as_tuple=True)[0])))
-                                pi_v.append(random.choice(((Adj[pi_v[i]] == 1).nonzero(as_tuple=True)[0])))
+                                pi_u.append(np.random.choice(((Adj[pi_u[i]] == 1).nonzero(as_tuple=True)[0])))
+                                pi_v.append(np.random.choice(((Adj[pi_v[i]] == 1).nonzero(as_tuple=True)[0])))
                                 if pi_u[i+1] == pi_v[i+1]:
                                     prob_i[i]+=1
                                     break
                                 for i in range(1,t):
-                                        pr = random.random()
+                                        pr = np.random.random()
                                         if pr > c:
                                             if len((Adj[pi_v[i]] == 1).nonzero(as_tuple=True)[0])>0 and len((Adj[pi_u[i]] == 1).nonzero(as_tuple=True)[0])>0:
                                                 
-                                                pi_u.append(random.choice(((Adj[pi_u[i]] == 1).nonzero(as_tuple=True)[0])))
-                                                pi_v.append(random.choice(((Adj[pi_v[i]] == 1).nonzero(as_tuple=True)[0])))
+                                                pi_u.append(np.random.choice(((Adj[pi_u[i]] == 1).nonzero(as_tuple=True)[0])))
+                                                pi_v.append(np.random.choice(((Adj[pi_v[i]] == 1).nonzero(as_tuple=True)[0])))
 
                                                 if pi_u[i+1] == pi_v[i+1]:
                                                     prob_i[i]+=1
@@ -195,14 +219,76 @@ class Sampler():
                         prob_i = prob_i/r
                         A[u][nei] = sum(prob_i)
                 return A
-                                    
+    def find_sim_rank_for_batch_torch(self,batch,Adj,device):
+                r = 100
+                t = 10
+                c = torch.sqrt(torch.tensor(0.6))
+                ## approx with SARW
+                batch = batch.to(device)
+                Adj = Adj.to(device)
+                SimRank = torch.zeros(len(batch),len(batch)).to(device)
+                print(len(batch))
+                for u in batch:
+                    d = datetime.now()
+                    for nei in batch:
+                        prob_i =torch.zeros(t).to('cuda')
+                        
+                        d_rw = datetime.now()
+                        pi_u = Adj.random_walk(u.repeat(r).flatten(), walk_length =t)
+                        pi_v = Adj.random_walk(nei.repeat(r).flatten(), walk_length =t)
+                        pi_u = pi_u[:,1:]
+                        pi_v = pi_v[:,1:]
+                        #print('random walk counting',datetime.now()-d_rw)
+                        #print(list(map(lambda x: self.f(x, c), pi_u)))
+                        d_r = datetime.now()
+                     #   b = torch.rand(pi_u.size())
+                     #   b2 =  torch.rand(pi_v.size())
+                        #print('random matrices counting',datetime.now()-d_r)
+                        d_ind = datetime.now()
+                     #   ind1=(b>c).nonzero()
+                     #   ind2=(b2>c).nonzero()
+                       # print('indices counting',datetime.now()-d_ind)
+                        
+                     #   d_pi = datetime.now()
+                     #   for row_elem,col_elem in ind1:
+                     #       pi_u[row_elem][col_elem:] =-1
+    
+                        
+                     #   for row_elem,col_elem in ind2:
+                     #       pi_v[row_elem][col_elem:]=-1 
+                     
+                        for j,row in enumerate(pi_u):
+                            prob = torch.rand(t)
+                            if torch.any(prob>c):
+                                ind = (prob>c).nonzero()[0] 
+                                row[ind:] = -1
+                            
+                        for j,row in enumerate(pi_v):
+                            prob = torch.rand(t)
+                            if torch.any(prob>c):
+                                ind = (prob>c).nonzero()[0] 
+                                row[ind:] = -1
+                       # print('pi matrices improving',datetime.now()-d_ind)
 
-   
+                        d_sr = datetime.now()            
+                        a1 = pi_u == pi_v
+                        a2 = pi_u != -1
+                        a3 = pi_v != -1
+                        a_to_compare = a1*a2*a3
+                        SR = len(torch.unique((a_to_compare).nonzero().t()[0]))
+                        SimRank[u][nei] = SR/r
+                        #print('sim ramk couning',datetime.now()-d_sr)
+                    print(SimRank[u],datetime.now()-d)
+                        
+
+                return SimRank 
+
+        
+class SamplerFactorization(Sampler):
+
     def sample(self,batch,**kwargs):
-        if not isinstance(batch, torch.Tensor):
-            batch = torch.tensor(batch, dtype=torch.long).to(self.device)
-            
-        if self.loss["loss var"] == "Factorization" or self.loss["loss var"] == "Laplacian EigenMaps":
+            if not isinstance(batch, torch.Tensor):
+                batch = torch.tensor(batch, dtype=torch.long).to(self.device)
             mask = torch.tensor([False]*len(self.data.x))
             mask[batch] = True
             A =  self.edge_index_to_adj_train(mask,batch)
@@ -212,15 +298,20 @@ class Sampler():
                 elif self.loss["C"] == "CN" :
                     C = torch.matmul(A,A)
                 elif self.loss["C"] == "AA":
+                    
                     D = torch.diag(1/(sum(A) + sum(A.t()))) 
+                    A = A.type(torch.FloatTensor)
+                    D[torch.isinf(D)] = 0
+                    D[torch.isnan(D)] = 0
                     C = torch.matmul(torch.matmul(A, D) ,A) 
                 elif self.loss["C"] == "Katz":
-                    betta = 0.1 
+                    betta =self.loss["betta"]
                     I = torch.ones
                     C = betta*torch.inverse((torch.diag(torch.ones(len(A))) - betta*A)) * A
 
                 elif self.loss["C"] == "RPR":
-                    alpha = self.alpha 
+                    
+                    alpha = self.loss["alpha"]
                     A = self.edge_index_to_adj_train(mask,batch).type(torch.FloatTensor)
                     invD =torch.diag(1/sum(A.t()))
                     invD[torch.isinf(invD)] = 0
@@ -228,8 +319,5 @@ class Sampler():
                 return C
             else:
                 return A
-        else:
-           
-            return (self.pos_sample(batch),self.neg_sample(batch))
+ 
 
-   
