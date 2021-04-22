@@ -11,6 +11,7 @@ from torch_geometric.utils.num_nodes import maybe_num_nodes
 from torch_cluster import random_walk
 from datetime import datetime
 import random
+import math
 try:
     import torch_cluster  # noqa
     RW = torch.ops.torch_cluster.random_walk
@@ -78,7 +79,7 @@ class SamplerRandomWalk(Sampler):
         #start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
         start = batch.repeat(self.walks_per_node).to(device)
         
-        adj = SparseTensor(row=ro, col=col, sparse_sizes=(len_batch, len_batch))
+        adj = SparseTensor(row=row, col=col, sparse_sizes=(len_batch, len_batch))
             
         rowptr, col, _ = adj.csr()
         rw = RW(rowptr, col, start, self.walk_length, self.p, self.q)
@@ -106,8 +107,7 @@ class SamplerContextMatrix(Sampler):
             Sampler.__init__(self, data,device, mask,loss_info,**kwargs)
             self.loss = loss_info
             if self.loss["C"] == "PPR":
-                self.alpha = kwargs["alpha"]
-            self.num_negative_samples = self.loss["num_negative_samples"]
+                self.alpha = self.loss["alpha"]
             self.num_negative_samples = self.loss["num_negative_samples"]
             #super(SamplerContextMatrix,self,__init__)
     def sample(self,batch,**kwargs):
@@ -148,43 +148,30 @@ class SamplerContextMatrix(Sampler):
                 A = self.find_sim_rank_for_batch_torch(batch,ASparse,device,mask,mask_new,r)
                         
         elif self.loss["C"] == "PPR":
-                    a,_ = subgraph(batch, self.data.edge_index)
-                    row,col=a 
-                    row = row.to(device)
-                    col = col.to(device) 
-                    #start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
-                    start = batch.repeat(self.walks_per_node).to(device)
 
-                    adj = SparseTensor(row=ro, col=col, sparse_sizes=(len_batch, len_batch))
-
-                    rowptr, col, _ = adj.csr()
                     Adg = self.edge_index_to_adj_train(mask,batch).type(torch.FloatTensor)
                     invD =torch.diag(1/sum(Adg.t()))
                     invD[torch.isinf(invD)] = 0
                     alpha = self.alpha
                     A = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(Adg))) - alpha*torch.matmul(invD,Adg)))
-
-                    
-        elif self.loss["Name"] == "APP":
-                pass #Implement
-        #print('counting of adj matrix', datetime.now()-d)
-        #dd = datetime.now()
         
-        #for x in batch:
-         #   for j in range(len(A)):
-          #      if A[x%len(batch)][j] != torch.tensor(0):
-           #         pos_batch.append([int(x%len(batch)),int(j),A[x%len(batch)][j]]) 
+        for x in batch:
+            for j in range(len(A)):
+                if A[x%len(batch)][j] != torch.tensor(0):
+                    pos_batch.append([int(x%len(batch)),int(j),A[x%len(batch)][j]]) 
         
        # print('pos batch sampling ', datetime.now() - d_pb)
        # print('converting adj matrix', datetime.now() - dd)
       #  p = 0 
-        for f,x in enumerate(batch):
-            for j in range(t):
-                if A[f][j] != torch.tensor(0):
-                    pos_batch[p][0] = (f)
-                    pos_batch[p][1] =(j)
-                    pos_batch[p][2] = (A[f][j])
-                    p+=1
+        
+        #pos_batch = torch.tensor()
+        #for f,x in enumerate(batch):
+         #   for j in range(t):
+          #      if A[f][j] != torch.tensor(0):
+           #         pos_batch[p][0] = (f)
+            #        pos_batch[p][1] =(j)
+             #       pos_batch[p][2] = (A[f][j])
+              #      p+=1
         pos_batch  = torch.tensor(pos_batch)
         return pos_batch
 
@@ -192,6 +179,7 @@ class SamplerContextMatrix(Sampler):
         d_nb = datetime.now()
         len_batch = len(batch)
         a,_=subgraph(batch.tolist(),self.data.edge_index)
+         
         neg_batch=self.NS.negative_sampling(batch,num_negative_samples=self.num_negative_samples)
        # print('neg batch sampling ', datetime.now() - d_nb)
         return neg_batch%len_batch
@@ -267,5 +255,75 @@ class SamplerFactorization(Sampler):
                 return C
             else:
                 return A
- 
+            
+class SamplerAPP(Sampler):
+    def __init__(self, data,device, mask,loss_info,**kwargs):
+            Sampler.__init__(self, data,device, mask,loss_info,**kwargs)
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.alpha = self.loss["alpha"]
+            self.r = 200
+            self.num_negative_samples = self.loss["num_negative_samples"]*10
+            #super(SamplerContextMatrix,self,__init__)
+    def sample(self,batch,**kwargs):
+        if not isinstance(batch, torch.Tensor):
+            batch = torch.tensor(batch, dtype=torch.long).to(self.device)
+        return (self.pos_sample(batch),self.neg_sample(batch))
+    def pos_sample(self,batch,**kwargs):
+        d_pb =datetime.now()
+        batch = batch.to(self.device)
+        len_batch = len(batch)
+        mask = torch.tensor([False]*len(self.data.x))
+        mask[batch.tolist()] = True
+        d = datetime.now()
+       
+        a,_ = subgraph(batch, self.data.edge_index)
+        row,col=a 
+        row = row.to(self.device)
+        col = col.to(self.device) 
+                    #start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
+        ASparse = SparseTensor(row=row, col=col, sparse_sizes=(len_batch, len_batch))
+        
+        pos_dict = self.find_PPR_approx(batch,ASparse,self.device,self.r,self.alpha)
+        pos_batch=[]
+        for pos_pair in pos_dict:
+            pos_row  = list(pos_pair) 
+            pos_row.append(pos_dict[pos_pair])
+            pos_batch.append(pos_row)
+        return torch.tensor(pos_batch)
+
+    def neg_sample(self,batch):
+        d_nb = datetime.now()
+        len_batch = len(batch)
+        a,_=subgraph(batch.tolist(),self.data.edge_index)
+        neg_batch=self.NS.negative_sampling(batch,num_negative_samples=self.num_negative_samples)
+       # print('neg batch sampling ', datetime.now() - d_nb)
+        return neg_batch%len_batch
+   
+    def find_PPR_approx(self,batch,Adj,device,r,alpha):
+        N=math.ceil(math.log(1/(r*alpha),(1-alpha)))
+        length = list(map(lambda x: int((1-alpha)**x*alpha *(r)), list(range(N-1))))
+        length.append(r-sum(length))
+
+        dict_data = dict()
+        for u in batch:
+            d = datetime.now()
+            pi_u = Adj.random_walk(u.to('cuda').repeat(r).flatten(), walk_length =N)
+            split = torch.split(pi_u, length)
+            pos_batch = []
+            import collections
+            for i,seg in enumerate(split):
+                pos_samples = collections.Counter(seg[:,(i+1)].tolist())
+                for pos_sample in pos_samples:
+                    if (int(seg[0][0]),int(pos_sample)) in dict_data:
+                        dict_data[(int(seg[0][0]),int(pos_sample))] += pos_samples[pos_sample]
+                    elif (int(pos_sample),int(seg[0][0])) in dict_data:
+                        dict_data[(int(pos_sample),int(seg[0][0]))] += pos_samples[pos_sample]
+                    else:
+                        dict_data[(int(seg[0][0]),int(pos_sample))] = 1
+
+                                    #print('sim ramk couning',datetime.now()-d_sr)
+                                #print(datetime.now()-d)
+           # print(datetime.now()-d)
+
+        return dict_data 
 

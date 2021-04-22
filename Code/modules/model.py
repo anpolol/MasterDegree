@@ -142,7 +142,7 @@ class Net(torch.nn.Module):
         dot = weight*((h_start * h_rest).sum(dim=-1)).view(-1)
         if self.loss_function["Name"] == "LINE":
             pos_loss = -2*(weight*torch.log(torch.sigmoid(dot))).mean()
-        elif self.loss_function["Name"].split('_')[0] == "VERSE":
+        elif self.loss_function["Name"].split('_')[0] == "VERSE" or self.loss_function["Name"] == "APP":
            
             pos_loss = -(weight*torch.log(torch.sigmoid(dot))).mean() 
 
@@ -153,7 +153,7 @@ class Net(torch.nn.Module):
         loss = 0.5*sum(sum((S- torch.matmul(out,out.t())) *(S- torch.matmul(out,out.t())))) + 0.5*lmbda*sum(sum(out*out))
         return loss
     def lossLaplacianEigenMaps(self,out,A):
-        dd=torch.device('cuda',1)
+        dd=torch.device('cuda')
         L = (torch.diag(sum(A)) -A).type(torch.FloatTensor).to(dd)
         out_tr = out.t().to(dd) 
         loss = torch.trace(torch.matmul(torch.matmul(out_tr,L) ,out))
