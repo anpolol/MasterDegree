@@ -38,7 +38,8 @@ class Sampler():
         for j,i in enumerate(edge_index_0):
             if i in x_new:
                 if edge_index_1[j] in x_new:
-                    A[i%len(batch)][edge_index_1[j]%len(batch)]=1 
+                    A[i][edge_index_1[j]]=1
+                    #A[i%len(batch)][edge_index_1[j]%len(batch)]=1 
        # x_new=(batch)#(torch.tensor(np.where(mask.cpu()==True)[0],dtype=torch.int32))
        # A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long).to(self.device)
        # for j,i in enumerate(x_new):
@@ -67,24 +68,20 @@ class SamplerRandomWalk(Sampler):
         return (self.pos_sample(batch),self.neg_sample(batch))
     def pos_sample(self,batch):
         d = datetime.now()
-        device = torch.device('cuda')
+        device =  torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         len_batch = len(batch) 
-        nodes = batch.numpy().tolist()
-        a,_ = subgraph(nodes, self.data.edge_index)
+        #nodes = batch.numpy().tolist()
+        a,_ = subgraph(batch, self.data.edge_index)
         row,col=a 
         row = row.to(device)
         col = col.to(device) 
-        start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
-        start = start.repeat(self.walks_per_node).to(device)
-        if self.loss['Name'] == 'Node2Vec':
-            adj = SparseTensor(row=row%len_batch, col=col%len_batch, sparse_sizes=(len_batch, len_batch))
+        #start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
+        start = batch.repeat(self.walks_per_node).to(device)
+        
+        adj = SparseTensor(row=ro, col=col, sparse_sizes=(len_batch, len_batch))
             
-            rowptr, col, _ = adj.csr()
-            #rw = adj.randint(start%len_batch) 
-            rw = RW(rowptr, col, start%len_batch, self.walk_length, self.p, self.q)
-        else:
-            adj = SparseTensor(row=row%len_batch, col=col%len_batch, sparse_sizes=(len_batch, len_batch)).to('cuda')
-            rw = adj.random_walk(start.flatten(), walk_length = self.walk_length)
+        rowptr, col, _ = adj.csr()
+        rw = RW(rowptr, col, start, self.walk_length, self.p, self.q)
             
             #rw = random_walk(row, col, start,  walk_length = self.walk_length)
         if not isinstance(rw, torch.Tensor):
@@ -119,7 +116,7 @@ class SamplerContextMatrix(Sampler):
         return (self.pos_sample(batch),self.neg_sample(batch))
     def pos_sample(self,batch,**kwargs):
         d_pb =datetime.now()
-        device = torch.device('cuda')
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         batch = batch
         pos_batch=[]
         mask = torch.tensor([False]*len(self.data.x))
@@ -138,36 +135,56 @@ class SamplerContextMatrix(Sampler):
                 row,col= Adj 
                 row = row.to(device)
                 col = col.to(device)
-                ASparse = SparseTensor(row=row%len(batch), col=col%len(batch), sparse_sizes=(len(batch), len(batch)))
-            
-                A = self.find_sim_rank_for_batch_torch(batch,ASparse,device)
+                ASparse = SparseTensor(row=row, col=col, sparse_sizes=(len(batch), len(batch)))
+                r = 200 
+                length = list(map(lambda x: x*int(r/100), [22,17,14,10,8,6,5,4,3,11]))
+                mask = []
+                for i, l in enumerate(length):
+                    mask1 = torch.zeros([l,10])
+                    mask1.t()[:(i+1)] = 1
+                    mask.append(mask1)
+                mask = torch.cat(mask)
+                mask_new = 1 - mask
+                A = self.find_sim_rank_for_batch_torch(batch,ASparse,device,mask,mask_new,r)
                         
         elif self.loss["C"] == "PPR":
-                Adg = self.edge_index_to_adj_train(mask,batch).type(torch.FloatTensor)
-                invD =torch.diag(1/sum(Adg.t()))
-                invD[torch.isinf(invD)] = 0
-                alpha = self.alpha
-                A = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(Adg))) - alpha*torch.matmul(invD,Adg)))
-        
+                    a,_ = subgraph(batch, self.data.edge_index)
+                    row,col=a 
+                    row = row.to(device)
+                    col = col.to(device) 
+                    #start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
+                    start = batch.repeat(self.walks_per_node).to(device)
+
+                    adj = SparseTensor(row=ro, col=col, sparse_sizes=(len_batch, len_batch))
+
+                    rowptr, col, _ = adj.csr()
+                    Adg = self.edge_index_to_adj_train(mask,batch).type(torch.FloatTensor)
+                    invD =torch.diag(1/sum(Adg.t()))
+                    invD[torch.isinf(invD)] = 0
+                    alpha = self.alpha
+                    A = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(Adg))) - alpha*torch.matmul(invD,Adg)))
+
+                    
         elif self.loss["Name"] == "APP":
                 pass #Implement
         #print('counting of adj matrix', datetime.now()-d)
-        dd = datetime.now()
-        for x in batch:
-            for j in range(len(A)):
-                if A[x%len(batch)][j] != torch.tensor(0):
-                    pos_batch.append([int(x%len(batch)),int(j),A[x%len(batch)][j]]) 
+        #dd = datetime.now()
+        
+        #for x in batch:
+         #   for j in range(len(A)):
+          #      if A[x%len(batch)][j] != torch.tensor(0):
+           #         pos_batch.append([int(x%len(batch)),int(j),A[x%len(batch)][j]]) 
         
        # print('pos batch sampling ', datetime.now() - d_pb)
        # print('converting adj matrix', datetime.now() - dd)
       #  p = 0 
-        #for f,x in enumerate(batch):
-         #   for j in range(t):
-          #      if A[f][j] != torch.tensor(0):
-           #         pos_batch[p][0] = (f)
-            #        pos_batch[p][1] =(j)
-             #       pos_batch[p][2] = (A[f][j])
-              #      p+=1
+        for f,x in enumerate(batch):
+            for j in range(t):
+                if A[f][j] != torch.tensor(0):
+                    pos_batch[p][0] = (f)
+                    pos_batch[p][1] =(j)
+                    pos_batch[p][2] = (A[f][j])
+                    p+=1
         pos_batch  = torch.tensor(pos_batch)
         return pos_batch
 
@@ -178,97 +195,29 @@ class SamplerContextMatrix(Sampler):
         neg_batch=self.NS.negative_sampling(batch,num_negative_samples=self.num_negative_samples)
        # print('neg batch sampling ', datetime.now() - d_nb)
         return neg_batch%len_batch
-    def find_sim_rank_for_batch(self,batch,Adj):
-                r = 100
-                t = 10
-                c = torch.sqrt(torch.tensor(0.6))
-                ## approx with SARW
-                
-                A = torch.zeros(len(Adj),len(Adj)).to('cuda')
-                for u in range(len(Adj)):
-                    print(u)
-                    d = datetime.now()
-                    for nei in range(len(Adj)):
-                        prob_i =np.zeros((t))
-                        for k in range(r):
-                            
-                            pi_u = [u]
-                            pi_v = [nei]
-                            if len((Adj[pi_v[0]] == 1).nonzero(as_tuple=True)[0])>0 and len((Adj[pi_u[0]] == 1).nonzero(as_tuple=True)[0])>0:
-                                i =0
-                                pi_u.append(np.random.choice(((Adj[pi_u[i]] == 1).nonzero(as_tuple=True)[0])))
-                                pi_v.append(np.random.choice(((Adj[pi_v[i]] == 1).nonzero(as_tuple=True)[0])))
-                                if pi_u[i+1] == pi_v[i+1]:
-                                    prob_i[i]+=1
-                                    break
-                                for i in range(1,t):
-                                        pr = np.random.random()
-                                        if pr > c:
-                                            if len((Adj[pi_v[i]] == 1).nonzero(as_tuple=True)[0])>0 and len((Adj[pi_u[i]] == 1).nonzero(as_tuple=True)[0])>0:
-                                                
-                                                pi_u.append(np.random.choice(((Adj[pi_u[i]] == 1).nonzero(as_tuple=True)[0])))
-                                                pi_v.append(np.random.choice(((Adj[pi_v[i]] == 1).nonzero(as_tuple=True)[0])))
-
-                                                if pi_u[i+1] == pi_v[i+1]:
-                                                    prob_i[i]+=1
-                                                    break
-                                            else:
-                                                break
-                                        else:
-                                            break
-                        prob_i = prob_i/r
-                        A[u][nei] = sum(prob_i)
-                return A
-    def find_sim_rank_for_batch_torch(self,batch,Adj,device):
-                r = 100
+   
+    def find_sim_rank_for_batch_torch(self,batch,Adj,device,mask,mask_new,r):
                 t = 10
                 c = torch.sqrt(torch.tensor(0.6))
                 ## approx with SARW
                 batch = batch.to(device)
                 Adj = Adj.to(device)
                 SimRank = torch.zeros(len(batch),len(batch)).to(device)
-                print(len(batch))
                 for u in batch:
+                    
                     d = datetime.now()
                     for nei in batch:
-                        prob_i =torch.zeros(t).to('cuda')
+                        prob_i =torch.zeros(t).to(device)
                         
                         d_rw = datetime.now()
                         pi_u = Adj.random_walk(u.repeat(r).flatten(), walk_length =t)
                         pi_v = Adj.random_walk(nei.repeat(r).flatten(), walk_length =t)
                         pi_u = pi_u[:,1:]
                         pi_v = pi_v[:,1:]
-                        #print('random walk counting',datetime.now()-d_rw)
-                        #print(list(map(lambda x: self.f(x, c), pi_u)))
-                        d_r = datetime.now()
-                     #   b = torch.rand(pi_u.size())
-                     #   b2 =  torch.rand(pi_v.size())
-                        #print('random matrices counting',datetime.now()-d_r)
-                        d_ind = datetime.now()
-                     #   ind1=(b>c).nonzero()
-                     #   ind2=(b2>c).nonzero()
-                       # print('indices counting',datetime.now()-d_ind)
+                       
+                        pi_u = pi_u * mask - mask_new
+                        pi_v = pi_v * mask - mask_new
                         
-                     #   d_pi = datetime.now()
-                     #   for row_elem,col_elem in ind1:
-                     #       pi_u[row_elem][col_elem:] =-1
-    
-                        
-                     #   for row_elem,col_elem in ind2:
-                     #       pi_v[row_elem][col_elem:]=-1 
-                     
-                        for j,row in enumerate(pi_u):
-                            prob = torch.rand(t)
-                            if torch.any(prob>c):
-                                ind = (prob>c).nonzero()[0] 
-                                row[ind:] = -1
-                            
-                        for j,row in enumerate(pi_v):
-                            prob = torch.rand(t)
-                            if torch.any(prob>c):
-                                ind = (prob>c).nonzero()[0] 
-                                row[ind:] = -1
-                       # print('pi matrices improving',datetime.now()-d_ind)
 
                         d_sr = datetime.now()            
                         a1 = pi_u == pi_v
@@ -278,9 +227,8 @@ class SamplerContextMatrix(Sampler):
                         SR = len(torch.unique((a_to_compare).nonzero().t()[0]))
                         SimRank[u][nei] = SR/r
                         #print('sim ramk couning',datetime.now()-d_sr)
-                    print(SimRank[u],datetime.now()-d)
-                        
-
+                    #print(datetime.now()-d)
+                     
                 return SimRank 
 
         

@@ -20,7 +20,7 @@ class NegativeSampler():
     def not_less_than(self,num_negative_samples, all_negative_samples):
         if len(all_negative_samples) == 0:
             return all_negative_samples
-        if len(all_negative_samples) >= k:
+        if len(all_negative_samples) >= num_negative_samples:
             return random.choices(all_negative_samples,k=num_negative_samples)#l[:k]
         return not_less_than(num_negative_samples, all_negative_samples*2)
     def adj_list(self,edge_index): #считаем список рёбер из edge_index 
