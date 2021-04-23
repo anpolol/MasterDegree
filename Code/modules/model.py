@@ -2,6 +2,7 @@ import torch
 from torch_geometric.nn import GCNConv, SAGEConv,GATConv, SGConv, ChebConv 
 import torch.nn.functional as F
 from torch_geometric.data import NeighborSampler
+from datetime import datetime
 class Net(torch.nn.Module):
     def __init__(self, dataset, device,loss_function,mode='unsupervised',conv='GCN',hidden_layer=64,out_layer =128,dropout = 0,num_layers=2):
         super(Net, self).__init__()
@@ -81,7 +82,7 @@ class Net(torch.nn.Module):
                 x = F.relu(x)
                 x = F.dropout(x, p=self.dropout, training=self.training)
         if self.mode=='unsupervised':
-            return x
+            return x 
         elif self.mode=='supervised':
             return x.log_softmax(dim=1)
         
@@ -99,14 +100,17 @@ class Net(torch.nn.Module):
             return x.log_softmax(dim=-1)       
               
     def lossRandomWalks(self,out, PosNegSamples):
+        d = datetime.now()
         dot, neg_loss = self.parse_RW(out, PosNegSamples)
         if self.loss_function["Name"] == "SAGE": ###то же что и deepwalk!
             pos_loss =  -( torch.log( 1/(torch.ones(len(dot)).to(self.device) + torch.exp(dot)))).mean()
         elif self.loss_function["Name"] == "DeepWalk" or self.loss_function["Name"] == "Node2Vec":
             pos_loss = -torch.log(torch.sigmoid(dot)).mean()
+        #print('loss counting', datetime.now()-d)
         return pos_loss + neg_loss
+    
     def parse_RW(self, out, PosNegSamples):
-        (pos_rw,neg_rw) = PosNegSamples    
+        (pos_rw,neg_rw) = PosNegSamples
         pos_rw,neg_rw = pos_rw.type(torch.LongTensor).to(self.device),neg_rw.type(torch.LongTensor).to(self.device)
         # Positive loss.
         pos_loss=0
@@ -114,6 +118,7 @@ class Net(torch.nn.Module):
         h_start = out[start].view(pos_rw.size(0), 1,self.out_layer)
         h_rest = out[rest.view(-1)].view(pos_rw.size(0), -1,self.out_layer)
         dot = (h_start * h_rest).sum(dim=-1).view(-1)
+       # print('dot',dot.device)
             # Negative loss
         start, rest = neg_rw[:, 0], neg_rw[:, 1:].contiguous()
         h_start =out[start].view(neg_rw.size(0), 1,self.out_layer)
@@ -143,7 +148,6 @@ class Net(torch.nn.Module):
         if self.loss_function["Name"] == "LINE":
             pos_loss = -2*(weight*torch.log(torch.sigmoid(dot))).mean()
         elif self.loss_function["Name"].split('_')[0] == "VERSE" or self.loss_function["Name"] == "APP":
-           
             pos_loss = -(weight*torch.log(torch.sigmoid(dot))).mean() 
 
         return pos_loss + neg_loss
