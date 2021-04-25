@@ -12,6 +12,8 @@ from torch_cluster import random_walk
 from datetime import datetime
 import random
 import math
+import collections
+import abc
 try:
     import torch_cluster  # noqa
     RW = torch.ops.torch_cluster.random_walk
@@ -48,45 +50,59 @@ class Sampler():
         #        if self.data.edge_index[1][k] in x_new:
          #           A[j][(x_new==self.data.edge_index[1][k]).nonzero(as_tuple =True)[0]] = 1    
         return A      
-    
+    @abc.abstractmethod
     def sample(self,batch,**kwargs):
          pass
+     
+    
+class SamplerWithNegSamples(Sampler):
+    def __init__(self,data,device,mask,loss_info,**kwargs):
+        Sampler.__init__(self,data,device,mask,loss_info,**kwargs)
+        self.num_negative_samples = self.loss["num_negative_samples"]
+    def sample(self,batch):
+        if not isinstance(batch, torch.Tensor):
+            batch = torch.tensor(batch, dtype=torch.long).to(self.device)
+        return (self.pos_sample(batch),self.neg_sample(batch))
+    @abc.abstractmethod
+    def pos_sample(self,batch):
+        pass 
+    def neg_sample(self,batch):
+        len_batch = len(batch)
+        a,_=subgraph(batch.tolist(),self.data.edge_index)
+        neg_batch=self.NS.negative_sampling(batch,num_negative_samples=self.num_negative_samples)
+        return neg_batch#%len_batch
         
-class SamplerRandomWalk(Sampler):
+class SamplerRandomWalk(SamplerWithNegSamples):
     def __init__(self, data,device, mask,loss_info,**kwargs):
-            Sampler.__init__(self, data,device, mask,loss_info,**kwargs)
+            SamplerWithNegSamples.__init__(self, data,device, mask,loss_info,**kwargs)
             self.loss = loss_info
             self.p=self.loss["p"]
             self.q=self.loss["q"]
             self.walk_length =self.loss["walk_length"]
             self.walks_per_node = self.loss["walks_per_node"]
             self.context_size = self.loss["context_size"] if self.walk_length>=self.loss["context_size"] else self.walk_length
-            self.num_negative_samples = self.loss["num_negative_samples"]
-           # super(Sampler,self,__init__)
-    def sample(self,batch,**kwargs):
-        if not isinstance(batch, torch.Tensor):
-            batch = torch.tensor(batch, dtype=torch.long).to('cuda')
-        return (self.pos_sample(batch),self.neg_sample(batch))
+    def neg_sample(self,batch):
+        len_batch = len(batch)
+        a,_=subgraph(batch.tolist(),self.data.edge_index)
+        batch = batch.repeat(self.walks_per_node * self.num_negative_samples) 
+        #print(c, batch,self.num_negative_samples)
+        neg_batch = self.NS.negative_sampling(batch,num_negative_samples = self.num_negative_samples)
+        return neg_batch%len_batch
     def pos_sample(self,batch):
         d = datetime.now()
-        device =  torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        len_batch = len(batch) 
-        #nodes = batch.numpy().tolist()
+        len_batch = len(batch)
         a,_ = subgraph(batch, self.data.edge_index)
         row,col=a 
         row = row
         col = col 
-        #start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
-        start = batch.repeat(self.walks_per_node)#.to(device)
         d1 = datetime.now()
         adj = SparseTensor(row=row, col=col, sparse_sizes=(len_batch, len_batch))
             
         rowptr, col, _ = adj.csr()
-        #print('making sparse tensor', datetime.now()-d1)
         d2 = datetime.now()
+        start = batch.repeat(self.walks_per_node).to(self.device)
         rw = RW(rowptr, col, start, self.walk_length, self.p, self.q)
-            
-            #rw = random_walk(row, col, start,  walk_length = self.walk_length)
+
         if not isinstance(rw, torch.Tensor):
             rw = rw[0]
         walks = []
@@ -94,34 +110,17 @@ class SamplerRandomWalk(Sampler):
         
         for j in range(num_walks_per_rw):
              walks.append(rw[:, j:j + self.context_size]) #теперь у нас внутри walks лежат 12 матриц размерам 10*1
-
-        return  (torch.cat(walks, dim=0)).to(device)
+        return  (torch.cat(walks, dim=0)).to(self.device)
     
-    def neg_sample(self,batch):
-        d = datetime.now()
-        len_batch = len(batch)
-        a,_=subgraph(batch.tolist(),self.data.edge_index)
-        batch = batch.repeat(self.walks_per_node * self.num_negative_samples) 
-        #print(c, batch,self.num_negative_samples)
-        neg_batch = self.NS.negative_sampling(batch,num_negative_samples = self.num_negative_samples)
-
-        return neg_batch
     
-class SamplerContextMatrix(Sampler):
+class SamplerContextMatrix(SamplerWithNegSamples):
     def __init__(self, data,device, mask,loss_info,**kwargs):
-            Sampler.__init__(self, data,device, mask,loss_info,**kwargs)
+            SamplerWithNegSamples.__init__(self, data,device, mask,loss_info,**kwargs)
             self.loss = loss_info
             if self.loss["C"] == "PPR":
                 self.alpha = self.loss["alpha"]
-            self.num_negative_samples = self.loss["num_negative_samples"]
-            #super(SamplerContextMatrix,self,__init__)
-    def sample(self,batch,**kwargs):
-        if not isinstance(batch, torch.Tensor):
-            batch = torch.tensor(batch, dtype=torch.long).to(self.device)
-        return (self.pos_sample(batch),self.neg_sample(batch))
     def pos_sample(self,batch,**kwargs):
         d_pb =datetime.now()
-        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         batch = batch
         pos_batch=[]
         mask = torch.tensor([False]*len(self.data.x))
@@ -137,8 +136,8 @@ class SamplerContextMatrix(Sampler):
         elif self.loss["C"] == "SR":
                 Adj, _ = subgraph(batch.tolist(),self.data.edge_index) 
                 row,col= Adj 
-                row = row.to(device)
-                col = col.to(device)
+                row = row.to(self.device)
+                col = col.to(self.device)
                 ASparse = SparseTensor(row=row, col=col, sparse_sizes=(len(batch), len(batch)))
                 r = 200 
                 length = list(map(lambda x: x*int(r/100), [22,17,14,10,8,6,5,4,3,11]))
@@ -149,16 +148,14 @@ class SamplerContextMatrix(Sampler):
                     mask.append(mask1)
                 mask = torch.cat(mask)
                 mask_new = 1 - mask
-                A = self.find_sim_rank_for_batch_torch(batch,ASparse,device,mask,mask_new,r)
+                A = self.find_sim_rank_for_batch_torch(batch,ASparse,self.device,mask,mask_new,r)
                         
         elif self.loss["C"] == "PPR":
-
                     Adg = self.edge_index_to_adj_train(mask,batch).type(torch.FloatTensor)
                     invD =torch.diag(1/sum(Adg.t()))
                     invD[torch.isinf(invD)] = 0
                     alpha = self.alpha
                     A = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(Adg))) - alpha*torch.matmul(invD,Adg)))
-        
        #cpu:
         #pos_batch = [] 
        # for x in batch:
@@ -167,9 +164,9 @@ class SamplerContextMatrix(Sampler):
            #         pos_batch.append([int(x),int(j),A[x][j]])
         #return torch.tensor(pos_batch)
         
-        A=A.to(device)
+        A=A.to(self.device)
         t = len(A)
-        pos_batch = torch.Tensor( torch.nonzero(A).size(0), 3 ).to(device)
+        pos_batch = torch.Tensor( torch.nonzero(A).size(0), 3 ).to(self.device)
         p = 0 
         for f,x in enumerate(batch):
             for j in range(t):
@@ -178,17 +175,7 @@ class SamplerContextMatrix(Sampler):
                     pos_batch[p][1] =(j)
                     pos_batch[p][2] = (A[f][j])
                     p+=1
-        print('inhere')
         return pos_batch
-
-    def neg_sample(self,batch):
-        d_nb = datetime.now()
-        len_batch = len(batch)
-        a,_=subgraph(batch.tolist(),self.data.edge_index)
-         
-        neg_batch=self.NS.negative_sampling(batch,num_negative_samples=self.num_negative_samples)
-       # print('neg batch sampling ', datetime.now() - d_nb)
-        return neg_batch%len_batch
    
     def find_sim_rank_for_batch_torch(self,batch,Adj,device,mask,mask_new,r):
                 t = 10
@@ -220,14 +207,11 @@ class SamplerContextMatrix(Sampler):
                         a_to_compare = a1*a2*a3
                         SR = len(torch.unique((a_to_compare).nonzero().t()[0]))
                         SimRank[u][nei] = SR/r
-                        #print('sim ramk couning',datetime.now()-d_sr)
-                    #print(datetime.now()-d)
                      
                 return SimRank 
 
         
 class SamplerFactorization(Sampler):
-
     def sample(self,batch,**kwargs):
             if not isinstance(batch, torch.Tensor):
                 batch = torch.tensor(batch, dtype=torch.long).to(self.device)
@@ -240,7 +224,6 @@ class SamplerFactorization(Sampler):
                 elif self.loss["C"] == "CN" :
                     C = torch.matmul(A,A)
                 elif self.loss["C"] == "AA":
-                    
                     D = torch.diag(1/(sum(A) + sum(A.t()))) 
                     A = A.type(torch.FloatTensor)
                     D[torch.isinf(D)] = 0
@@ -250,9 +233,7 @@ class SamplerFactorization(Sampler):
                     betta =self.loss["betta"]
                     I = torch.ones
                     C = betta*torch.inverse((torch.diag(torch.ones(len(A))) - betta*A)) * A
-
                 elif self.loss["C"] == "RPR":
-                    
                     alpha = self.loss["alpha"]
                     A = self.edge_index_to_adj_train(mask,batch).type(torch.FloatTensor)
                     invD =torch.diag(1/sum(A.t()))
@@ -262,14 +243,13 @@ class SamplerFactorization(Sampler):
             else:
                 return A
             
-class SamplerAPP(Sampler):
+class SamplerAPP(SamplerWithNegSamples):
     def __init__(self, data,device, mask,loss_info,**kwargs):
-            Sampler.__init__(self, data,device, mask,loss_info,**kwargs)
+            SamplerWithNegSamples.__init__(self, data,device, mask,loss_info,**kwargs)
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             self.alpha = self.loss["alpha"]
             self.r = 200
-            self.num_negative_samples = self.loss["num_negative_samples"]*10
-            #super(SamplerContextMatrix,self,__init__)
+            self.num_negative_samples *=10
     def sample(self,batch,**kwargs):
         if not isinstance(batch, torch.Tensor):
             batch = torch.tensor(batch, dtype=torch.long).to(self.device)
@@ -296,19 +276,10 @@ class SamplerAPP(Sampler):
             pos_row.append(pos_dict[pos_pair])
             pos_batch.append(pos_row)
         return torch.tensor(pos_batch)
-
-    def neg_sample(self,batch):
-        d_nb = datetime.now()
-        len_batch = len(batch)
-        a,_=subgraph(batch.tolist(),self.data.edge_index)
-        neg_batch=self.NS.negative_sampling(batch,num_negative_samples=self.num_negative_samples)
-       # print('neg batch sampling ', datetime.now() - d_nb)
-        return neg_batch%len_batch
    
     def find_PPR_approx(self,batch,Adj,device,r,alpha):
         N=math.ceil(math.log(1/(r*alpha),(1-alpha)))
         length = list(map(lambda x: int((1-alpha)**x*alpha *(r)), list(range(N-1))))
-       # length.append(r-sum(length))
         r = sum(length)
         dict_data = dict()
         device='cpu'
@@ -317,7 +288,7 @@ class SamplerAPP(Sampler):
             pi_u = Adj.random_walk(u.to(self.device).repeat(r).flatten(), walk_length =N)
             split = torch.split(pi_u, length)
             pos_batch = []
-            import collections
+            
             for i,seg in enumerate(split):
                 pos_samples = collections.Counter(seg[:,(i+1)].tolist())
                 for pos_sample in pos_samples:
@@ -327,9 +298,5 @@ class SamplerAPP(Sampler):
                         dict_data[(int(pos_sample),int(seg[0][0]))] += pos_samples[pos_sample]
                     else:
                         dict_data[(int(seg[0][0]),int(pos_sample))] = 1
-
-                                    #print('sim ramk couning',datetime.now()-d_sr)
-                                #print(datetime.now()-d)
-           
         return dict_data 
 

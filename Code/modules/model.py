@@ -39,9 +39,7 @@ class Net(torch.nn.Module):
                 self.convs.append(SAGEConv(self.num_features, self.hidden_layer))
                 for i in range(1,self.num_layers-1):
                     self.convs.append(SAGEConv(self.hidden_layer, self.hidden_layer))
-                self.convs.append(SAGEConv(self.hidden_layer, out_channels))
-            
-            
+                self.convs.append(SAGEConv(self.hidden_layer, out_channels))            
         elif self.conv == 'GAT':
             if self.num_layers == 1:
                 self.convs.append(GATConv(self.num_features, out_channels))
@@ -50,16 +48,7 @@ class Net(torch.nn.Module):
                 for i in range(1,self.num_layers-1):
                     self.convs.append(GATConv(self.hidden_layer, self.hidden_layer))
                 self.convs.append(GATConv(self.hidden_layer, out_channels))
-        elif self.conv == 'SGC':
-            self.convs.append(SGConv(self.num_features, self.hidden_layer))
-            for i in range(1,self.num_layers-1):
-                self.convs.append(SGConv(self.hidden_layer, self.hidden_layer))
-            self.convs.append(SGConv(self.hidden_layer, out_channels))
-        elif self.conv == 'Cheb':
-            self.convs.append(ChebConv(self.num_features, self.hidden_layer,K=2))
-            for i in range(1,self.num_layers-1):
-                self.convs.append(ChebConv(self.hidden_layer, self.hidden_layer))
-            self.convs.append(ChebConv(self.hidden_layer, out_channels,K=2))
+                
         if loss_function["loss var"] == "Random Walks":
             self.loss = self.lossRandomWalks
         elif loss_function["loss var"] == "Context Matrix":
@@ -100,16 +89,6 @@ class Net(torch.nn.Module):
             return x.log_softmax(dim=-1)       
               
     def lossRandomWalks(self,out, PosNegSamples):
-        d = datetime.now()
-        dot, neg_loss = self.parse_RW(out, PosNegSamples)
-        if self.loss_function["Name"] == "SAGE": ###то же что и deepwalk!
-            pos_loss =  -( torch.log( 1/(torch.ones(len(dot)).to(self.device) + torch.exp(dot)))).mean()
-        elif self.loss_function["Name"] == "DeepWalk" or self.loss_function["Name"] == "Node2Vec":
-            pos_loss = -torch.log(torch.sigmoid(dot)).mean()
-        #print('loss counting', datetime.now()-d)
-        return pos_loss + neg_loss
-    
-    def parse_RW(self, out, PosNegSamples):
         (pos_rw,neg_rw) = PosNegSamples
         pos_rw,neg_rw = pos_rw.type(torch.LongTensor).to(self.device),neg_rw.type(torch.LongTensor).to(self.device)
         # Positive loss.
@@ -118,6 +97,8 @@ class Net(torch.nn.Module):
         h_start = out[start].view(pos_rw.size(0), 1,self.out_layer)
         h_rest = out[rest.view(-1)].view(pos_rw.size(0), -1,self.out_layer)
         dot = (h_start * h_rest).sum(dim=-1).view(-1)
+        pos_loss = -torch.log(torch.sigmoid(dot)).mean()
+        
        # print('dot',dot.device)
             # Negative loss
         start, rest = neg_rw[:, 0], neg_rw[:, 1:].contiguous()
@@ -125,7 +106,9 @@ class Net(torch.nn.Module):
         h_rest =  out[rest.view(-1)].view(neg_rw.size(0), -1,self.out_layer)
         dot = (h_start * h_rest).sum(dim=-1).view(-1)
         neg_loss = -torch.log(torch.sigmoid((-1)*dot)).mean()
-        return dot, neg_loss
+
+        return pos_loss + neg_loss
+    
         
     def lossContextMatrix(self,out, PosNegSamples):
         (pos_rw,neg_rw) = PosNegSamples
@@ -161,12 +144,7 @@ class Net(torch.nn.Module):
         L = (torch.diag(sum(A)) -A).type(torch.FloatTensor).to(dd)
         out_tr = out.t().to(dd) 
         loss = torch.trace(torch.matmul(torch.matmul(out_tr,L) ,out))
-        #loss = 0 
-        #for i in range(len(out)):
-         #   for j in range(len(out)):
-          #      k = (out[i]-out[j])
-           #     loss+=A[i][j]*torch.matmul(k,k.t())
-        return loss #0.5*loss
+        return loss
         
     #loss function for supervised mode   
 
