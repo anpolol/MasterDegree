@@ -150,4 +150,3 @@ class Net(torch.nn.Module):
 
     def loss_sup(self, pred, label):
         return F.nll_loss(pred, label)
-    

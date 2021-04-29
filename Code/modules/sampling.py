@@ -24,7 +24,7 @@ from torch_geometric.utils import subgraph
 
 class Sampler():
     def __init__(self, data,device, mask,loss_info,**kwargs):
-        self.device = 'cpu'
+        self.device = device
         self.data = data.to(self.device)
         self.mask = mask
         self.NS = NegativeSampler(self.data, self.device)
@@ -299,4 +299,3 @@ class SamplerAPP(SamplerWithNegSamples):
                     else:
                         dict_data[(int(seg[0][0]),int(pos_sample))] = 1
         return dict_data 
-
