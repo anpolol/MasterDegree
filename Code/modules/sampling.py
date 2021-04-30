@@ -30,8 +30,24 @@ class Sampler():
         self.NS = NegativeSampler(self.data, self.device)
         self.loss = loss_info
         super(Sampler, self).__init__()
-    
-    def edge_index_to_adj_train(self,mask,batch): 
+    def edge_index_to_adj_train(self,batch): 
+        x_new=torch.sort(batch).values
+       # долго работает наверное из-за .nonzero(as_tuple =True)         
+        d_2=datetime.now()        
+        x_map = dict()
+        x_new = x_new.tolist()
+        for j,i in enumerate(x_new):
+            x_map[i] = j
+        A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long)#.to(self.device)
+        edge_index_0 = self.data.edge_index[0].tolist()
+        edge_index_1 = self.data.edge_index[1].tolist()
+        for j,i in enumerate(edge_index_0):
+            if i in x_new:
+                if edge_index_1[j] in x_new:
+                    A[x_map[i]][x_map[edge_index_1[j]]]=1
+        
+        return A,x_map
+    def edge_index_to_adj_train_old(self,mask,batch): 
         x_new=(torch.tensor(np.where(mask==True)[0],dtype=torch.int32))
         A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long)
         
@@ -123,18 +139,16 @@ class SamplerContextMatrix(SamplerWithNegSamples):
         d_pb =datetime.now()
         batch = batch
         pos_batch=[]
-        mask = torch.tensor([False]*len(self.data.x))
-        mask[batch.tolist()] = True
         d = datetime.now()
         if self.loss["C"] == "Adj" and self.loss["Name"] == "LINE":
-                A = self.edge_index_to_adj_train(mask,batch.tolist())
+                A,x_map = self.edge_index_to_adj_train(batch)
         elif self.loss["C"] == "Adj" and self.loss["Name"] == "VERSE_Adj":
-                Adj = self.edge_index_to_adj_train(mask,batch.tolist())
+                Adj,x_map = self.edge_index_to_adj_train(batch)
                 A = (Adj / sum(Adj)).t()
                 A[torch.isinf(A)] = 0
                 A[torch.isnan(A)] = 0
         elif self.loss["C"] == "SR":
-                Adj, _ = subgraph(batch.tolist(),self.data.edge_index) 
+                Adj, _ = subgraph(batch,self.data.edge_index) 
                 row,col= Adj 
                 row = row.to(self.device)
                 col = col.to(self.device)
@@ -151,31 +165,31 @@ class SamplerContextMatrix(SamplerWithNegSamples):
                 A = self.find_sim_rank_for_batch_torch(batch,ASparse,self.device,mask,mask_new,r)
                         
         elif self.loss["C"] == "PPR":
-                    Adg = self.edge_index_to_adj_train(mask,batch).type(torch.FloatTensor)
+                    Adg,x_map = self.edge_index_to_adj_train(batch).type(torch.FloatTensor)
                     invD =torch.diag(1/sum(Adg.t()))
                     invD[torch.isinf(invD)] = 0
                     alpha = self.alpha
                     A = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(Adg))) - alpha*torch.matmul(invD,Adg)))
        #cpu:
-        #pos_batch = [] 
-       # for x in batch:
-        ##    for j in range(len(A)):
-          #      if A[x][j] != torch.tensor(0):
-           #         pos_batch.append([int(x),int(j),A[x][j]])
-        #return torch.tensor(pos_batch)
+        pos_batch = [] 
+        for x in batch:
+            for j in range(batch):
+                if A[x_map[x]][x_map[j]] != torch.tensor(0):
+                    pos_batch.append([int(x),int(j),A[x][j]])
+        return torch.tensor(pos_batch)
         
-        A=A.to(self.device)
-        t = len(A)
-        pos_batch = torch.Tensor( torch.nonzero(A).size(0), 3 ).to(self.device)
-        p = 0 
-        for f,x in enumerate(batch):
-            for j in range(t):
-                if A[f][j] != torch.tensor(0):
-                    pos_batch[p][0] = (f)
-                    pos_batch[p][1] =(j)
-                    pos_batch[p][2] = (A[f][j])
-                    p+=1
-        return pos_batch
+       # A=A.to(self.device)
+        #t = len(A)
+        #pos_batch = torch.Tensor( torch.nonzero(A).size(0), 3 ).to(self.device)
+        #p = 0 
+        #for f,x in enumerate(batch):
+        #    for j in range(t):
+        #        if A[f][j] != torch.tensor(0):
+        #            pos_batch[p][0] = (f)
+        #            pos_batch[p][1] =(j)
+        #            pos_batch[p][2] = (A[f][j])
+        #            p+=1
+        #return pos_batch
    
     def find_sim_rank_for_batch_torch(self,batch,Adj,device,mask,mask_new,r):
                 t = 10
@@ -215,9 +229,8 @@ class SamplerFactorization(Sampler):
     def sample(self,batch,**kwargs):
             if not isinstance(batch, torch.Tensor):
                 batch = torch.tensor(batch, dtype=torch.long).to(self.device)
-            mask = torch.tensor([False]*len(self.data.x))
-            mask[batch] = True
-            A =  self.edge_index_to_adj_train(mask,batch)
+
+            A,_ =  self.edge_index_to_adj_train(batch)
             if self.loss["loss var"] == "Factorization":
                 if self.loss["C"] == "Adj":
                     C = A
@@ -235,7 +248,7 @@ class SamplerFactorization(Sampler):
                     C = betta*torch.inverse((torch.diag(torch.ones(len(A))) - betta*A)) * A
                 elif self.loss["C"] == "RPR":
                     alpha = self.loss["alpha"]
-                    A = self.edge_index_to_adj_train(mask,batch).type(torch.FloatTensor)
+                    A = A.type(torch.FloatTensor)
                     invD =torch.diag(1/sum(A.t()))
                     invD[torch.isinf(invD)] = 0
                     C = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(A))) - alpha*torch.matmul(invD,A)))
@@ -246,7 +259,7 @@ class SamplerFactorization(Sampler):
 class SamplerAPP(SamplerWithNegSamples):
     def __init__(self, data,device, mask,loss_info,**kwargs):
             SamplerWithNegSamples.__init__(self, data,device, mask,loss_info,**kwargs)
-            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+            self.device = torch.device('cuda',1)# if torch.cuda.is_available() else 'cpu')
             self.alpha = self.loss["alpha"]
             self.r = 200
             self.num_negative_samples *=10
