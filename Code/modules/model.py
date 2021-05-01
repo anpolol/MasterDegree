@@ -12,6 +12,7 @@ class Net(torch.nn.Module):
         self.num_features = dataset.num_features
         self.num_classes = dataset.num_classes
         self.data = dataset[0]
+        #print(dataset.num_features)
         self.loss_function = loss_function
         self.convs = torch.nn.ModuleList()
         self.hidden_layer =hidden_layer
@@ -140,7 +141,7 @@ class Net(torch.nn.Module):
         loss = 0.5*sum(sum((S- torch.matmul(out,out.t())) *(S- torch.matmul(out,out.t())))) + 0.5*lmbda*sum(sum(out*out))
         return loss
     def lossLaplacianEigenMaps(self,out,A):
-        dd=torch.device('cuda')
+        dd=torch.device('cuda',1)
         L = (torch.diag(sum(A)) -A).type(torch.FloatTensor).to(dd)
         out_tr = out.t().to(dd) 
         loss = torch.trace(torch.matmul(torch.matmul(out_tr,L) ,out))
