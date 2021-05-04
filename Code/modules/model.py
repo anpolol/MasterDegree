@@ -135,9 +135,10 @@ class Net(torch.nn.Module):
             pos_loss = -(weight*torch.log(torch.sigmoid(dot))).mean() 
 
         return pos_loss + neg_loss
-    def lossFactorization(self,out,S):
+    def lossFactorization(self,out,S,**kwargs):
         S=S.to(self.device)
-        lmbda=0.1
+        
+        lmbda=self.loss_function["lmbda"]
         loss = 0.5*sum(sum((S- torch.matmul(out,out.t())) *(S- torch.matmul(out,out.t())))) + 0.5*lmbda*sum(sum(out*out))
         return loss
     def lossLaplacianEigenMaps(self,out,A):

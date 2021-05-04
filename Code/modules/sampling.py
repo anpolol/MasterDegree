@@ -29,6 +29,7 @@ class Sampler():
         self.mask = mask
         self.NS = NegativeSampler(self.data, self.device)
         self.loss = loss_info
+        
         super(Sampler, self).__init__()
     def edge_index_to_adj_train(self,batch): 
         x_new=torch.sort(batch).values
@@ -103,7 +104,7 @@ class SamplerRandomWalk(SamplerWithNegSamples):
         batch = batch.repeat(self.walks_per_node * self.num_negative_samples) 
         #print(c, batch,self.num_negative_samples)
         neg_batch = self.NS.negative_sampling(batch,num_negative_samples = self.num_negative_samples)
-        return neg_batch%len_batch
+        return neg_batch
     def pos_sample(self,batch):
         d = datetime.now()
         len_batch = len(batch)
