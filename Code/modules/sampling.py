@@ -148,7 +148,7 @@ class SamplerContextMatrix(SamplerWithNegSamples):
                 A[torch.isinf(A)] = 0
                 A[torch.isnan(A)] = 0
         elif self.loss["C"] == "SR":
-                Adj, _ = subgraph(batch,self.data.edge_index) 
+                Adj, x_map = subgraph(batch,self.data.edge_index) 
                 row,col= Adj 
                 row = row.to(self.device)
                 col = col.to(self.device)
@@ -172,8 +172,9 @@ class SamplerContextMatrix(SamplerWithNegSamples):
                     A = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(Adg))) - alpha*torch.matmul(invD,Adg)))
        #cpu:
         pos_batch = [] 
-        for x in batch:
-            for j in range(batch):
+        batch_l = batch.tolist()
+        for x in batch_l:
+            for j in (batch_l):
                 if A[x_map[x]][x_map[j]] != torch.tensor(0):
                     pos_batch.append([int(x),int(j),A[x][j]])
         return torch.tensor(pos_batch)
@@ -259,7 +260,7 @@ class SamplerFactorization(Sampler):
 class SamplerAPP(SamplerWithNegSamples):
     def __init__(self, data,device, mask,loss_info,**kwargs):
             SamplerWithNegSamples.__init__(self, data,device, mask,loss_info,**kwargs)
-            self.device = torch.device('cuda',1)# if torch.cuda.is_available() else 'cpu')
+            self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             self.alpha = self.loss["alpha"]
             self.r = 200
             self.num_negative_samples *=10
