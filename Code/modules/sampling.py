@@ -14,6 +14,8 @@ import random
 import math
 import collections
 import abc
+import os
+import pickle
 try:
     import torch_cluster  # noqa
     RW = torch.ops.torch_cluster.random_walk
@@ -23,31 +25,30 @@ from functools import reduce
 from torch_geometric.utils import subgraph 
 
 class Sampler():
-    def __init__(self, data,device, mask,loss_info,**kwargs):
+    def __init__(self,datasetname, data,device, mask,loss_info,**kwargs):
         self.device = device
+        self.datasetname = datasetname
         self.data = data.to(self.device)
         self.mask = mask
         self.NS = NegativeSampler(self.data, self.device)
         self.loss = loss_info
-        
         super(Sampler, self).__init__()
     def edge_index_to_adj_train(self,batch): 
         x_new=torch.sort(batch).values
        # долго работает наверное из-за .nonzero(as_tuple =True)         
         d_2=datetime.now()        
-        x_map = dict()
+
         x_new = x_new.tolist()
-        for j,i in enumerate(x_new):
-            x_map[i] = j
+
         A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long)#.to(self.device)
         edge_index_0 = self.data.edge_index[0].tolist()
         edge_index_1 = self.data.edge_index[1].tolist()
         for j,i in enumerate(edge_index_0):
             if i in x_new:
                 if edge_index_1[j] in x_new:
-                    A[x_map[i]][x_map[edge_index_1[j]]]=1
+                    A[i][edge_index_1[j]]=1
         
-        return A,x_map
+        return A
     def edge_index_to_adj_train_old(self,mask,batch): 
         x_new=(torch.tensor(np.where(mask==True)[0],dtype=torch.int32))
         A = torch.zeros((len(x_new),len(x_new)),dtype=torch.long)
@@ -73,8 +74,8 @@ class Sampler():
      
     
 class SamplerWithNegSamples(Sampler):
-    def __init__(self,data,device,mask,loss_info,**kwargs):
-        Sampler.__init__(self,data,device,mask,loss_info,**kwargs)
+    def __init__(self,datasetname,data,device,mask,loss_info,**kwargs):
+        Sampler.__init__(self,datasetname, data,device, mask,loss_info,**kwargs)
         self.num_negative_samples = self.loss["num_negative_samples"]
     def sample(self,batch):
         if not isinstance(batch, torch.Tensor):
@@ -90,8 +91,8 @@ class SamplerWithNegSamples(Sampler):
         return neg_batch#%len_batch
         
 class SamplerRandomWalk(SamplerWithNegSamples):
-    def __init__(self, data,device, mask,loss_info,**kwargs):
-            SamplerWithNegSamples.__init__(self, data,device, mask,loss_info,**kwargs)
+    def __init__(self,datasetname, data,device, mask,loss_info,**kwargs):
+            SamplerWithNegSamples.__init__(self,datasetname, data,device, mask,loss_info,**kwargs)
             self.loss = loss_info
             self.p=self.loss["p"]
             self.q=self.loss["q"]
@@ -106,80 +107,146 @@ class SamplerRandomWalk(SamplerWithNegSamples):
         neg_batch = self.NS.negative_sampling(batch,num_negative_samples = self.num_negative_samples)
         return neg_batch
     def pos_sample(self,batch):
-        d = datetime.now()
-        len_batch = len(batch)
-        a,_ = subgraph(batch, self.data.edge_index)
-        row,col=a 
-        row = row
-        col = col 
-        d1 = datetime.now()
-        adj = SparseTensor(row=row, col=col, sparse_sizes=(len_batch, len_batch))
-            
-        rowptr, col, _ = adj.csr()
-        d2 = datetime.now()
-        start = batch.repeat(self.walks_per_node).to(self.device)
-        rw = RW(rowptr, col, start, self.walk_length, self.p, self.q)
+        name_of_samples = self.datasetname+'_'+str(self.walk_length)+ '_'+str(self.walks_per_node)+'_' + str(self.context_size)+'_'+str(self.p)+'_'+str(self.q)+'.pickle'
+        if os.path.exists(name_of_samples):
+            with open(name_of_samples,'rb') as f:
+                pos_samples = pickle.load(f)
+        else:
+            d = datetime.now()
+            len_batch = len(batch)
+            a,_ = subgraph(batch, self.data.edge_index)
+            row,col=a 
+            row = row
+            col = col 
+            d1 = datetime.now()
+            adj = SparseTensor(row=row, col=col, sparse_sizes=(len_batch, len_batch))
 
-        if not isinstance(rw, torch.Tensor):
-            rw = rw[0]
-        walks = []
-        num_walks_per_rw = 1 + self.walk_length + 1 - self.context_size
-        
-        for j in range(num_walks_per_rw):
-             walks.append(rw[:, j:j + self.context_size]) #теперь у нас внутри walks лежат 12 матриц размерам 10*1
-        return  (torch.cat(walks, dim=0)).to(self.device)
+            rowptr, col, _ = adj.csr()
+            d2 = datetime.now()
+            start = batch.repeat(self.walks_per_node).to(self.device)
+            rw = RW(rowptr, col, start, self.walk_length, self.p, self.q)
+
+            if not isinstance(rw, torch.Tensor):
+                rw = rw[0]
+            walks = []
+            num_walks_per_rw = 1 + self.walk_length + 1 - self.context_size
+            for j in range(num_walks_per_rw):
+                 walks.append(rw[:, j:j + self.context_size]) #теперь у нас внутри walks лежат 12 матриц размерам 10*1
+            pos_samples =(torch.cat(walks, dim=0))#.to(self.device) 
+            with open(name_of_samples,'wb') as f:
+                pickle.dump(pos_samples,f)
+        #if os.stat(name_of_samples).st_size/1000000 >90:
+         #   with open('Arxiv_15_20_10_1_1.pickle','rb') as f:
+          #      pos_samples = pickle.load(f)
+           # print('nope')
+
+        return pos_samples
     
     
 class SamplerContextMatrix(SamplerWithNegSamples):
-    def __init__(self, data,device, mask,loss_info,**kwargs):
-            SamplerWithNegSamples.__init__(self, data,device, mask,loss_info,**kwargs)
+    def __init__(self,datasetname, data,device, mask,loss_info,**kwargs):
+            SamplerWithNegSamples.__init__(self,datasetname, data,device, mask,loss_info,**kwargs)
             self.loss = loss_info
             if self.loss["C"] == "PPR":
-                self.alpha = self.loss["alpha"]
+                self.alpha = round(self.loss["alpha"],1)
     def pos_sample(self,batch,**kwargs):
         d_pb =datetime.now()
         batch = batch
         pos_batch=[]
         d = datetime.now()
         if self.loss["C"] == "Adj" and self.loss["Name"] == "LINE":
-                A,x_map = self.edge_index_to_adj_train(batch)
+                name = 'pos_samples_LINE_'+self.datasetname+'.pickle'
+                if os.path.exists(name):
+                        with open(name,'rb') as f:
+                            pos_batch = pickle.load(f)
+                else:
+                    A = self.edge_index_to_adj_train(batch)
+                    pos_batch = self.convert_to_samples(batch, A)
+                    with open(name,'wb') as f:
+                        pickle.dump(pos_batch,f)
         elif self.loss["C"] == "Adj" and self.loss["Name"] == "VERSE_Adj":
-                Adj,x_map = self.edge_index_to_adj_train(batch)
-                A = (Adj / sum(Adj)).t()
-                A[torch.isinf(A)] = 0
-                A[torch.isnan(A)] = 0
+                name = 'pos_samples_VERSEAdj_'+self.datasetname+'.pickle'
+                if os.path.exists(name):
+                    with open(name,'rb') as f:
+                        pos_batch = pickle.load(f)
+                else:
+                    Adj = self.edge_index_to_adj_train(batch).type(torch.FloatTensor)
+
+                    A = (Adj / sum(Adj)).t()
+                    A[torch.isinf(A)] = 0
+                    A[torch.isnan(A)] = 0
+                    pos_batch = self.convert_to_samples(batch, A)
+                    with open(name,'wb') as f:
+                        pickle.dump(pos_batch,f)
+                        
+                
         elif self.loss["C"] == "SR":
-                Adj, x_map = subgraph(batch,self.data.edge_index) 
-                row,col= Adj 
-                row = row.to(self.device)
-                col = col.to(self.device)
-                ASparse = SparseTensor(row=row, col=col, sparse_sizes=(len(batch), len(batch)))
-                r = 200 
-                length = list(map(lambda x: x*int(r/100), [22,17,14,10,8,6,5,4,3,11]))
-                mask = []
-                for i, l in enumerate(length):
-                    mask1 = torch.zeros([l,10])
-                    mask1.t()[:(i+1)] = 1
-                    mask.append(mask1)
-                mask = torch.cat(mask)
-                mask_new = 1 - mask
-                A = self.find_sim_rank_for_batch_torch(batch,ASparse,self.device,mask,mask_new,r)
+                SimRankName = 'SimRank'+self.datasetname+'.pickle'
+                if os.path.exists(SimRankName):
+                    with open(SimRankName,'rb') as f:
+                        A = pickle.load(f)
+                else:
+                    Adj,_ = subgraph(batch,self.data.edge_index) 
+                    row,col= Adj
+                    row = row.to(self.device)
+                    col = col.to(self.device)
+                    ASparse = SparseTensor(row=row, col=col, sparse_sizes=(len(batch), len(batch)))
+                    r = 200 
+                    length = list(map(lambda x: x*int(r/100), [22,17,14,10,8,6,5,4,3,11]))
+                    mask = []
+                    for i, l in enumerate(length):
+                        mask1 = torch.zeros([l,10])
+                        mask1.t()[:(i+1)] = 1
+                        mask.append(mask1)
+                    mask = torch.cat(mask)
+                    mask_new = 1 - mask
+                    A = self.find_sim_rank_for_batch_torch(batch,ASparse,self.device,mask,mask_new,r)
+                    with open(SimRankName,'wb') as f:
+                        pickle.dump(A,f)
+                samples_name = 'samples_simrank_' + self.datasetname +'.pickle'
+                if os.path.exists(samples_name):
+    
+                    with open(samples_name,'rb') as f:
+                        pos_batch = pickle.load(f)
+
+                else:
+                    pos_batch = self.convert_to_samples(batch, A)
+                    with open(samples_name,'wb') as f:
+                        pickle.dump(pos_batch,f)
+                    
                         
         elif self.loss["C"] == "PPR":
-                    Adg,x_map = self.edge_index_to_adj_train(batch).type(torch.FloatTensor)
+            alpha = self.alpha
+            name_of_file = 'pos_samples_VERSEPPR_'+str(alpha)+'_' +self.datasetname+'.pickle'
+            if os.path.exists(name_of_file):
+                        with open(name_of_file,'rb') as f:
+                            pos_batch = pickle.load(f)
+            else:   
+                    Adg = self.edge_index_to_adj_train(batch).type(torch.FloatTensor)
+                    print('1')
                     invD =torch.diag(1/sum(Adg.t()))
                     invD[torch.isinf(invD)] = 0
-                    alpha = self.alpha
+                    print('2')
                     A = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(Adg))) - alpha*torch.matmul(invD,Adg)))
-       #cpu:
+                    print('3')
+                    pos_batch = self.convert_to_samples(batch, A)
+                    print('4')
+                    with open(name_of_file,'wb') as f:
+                        pickle.dump(pos_batch,f)
+      
+        return pos_batch
+    def convert_to_samples(self,batch,A):
+            
         pos_batch = [] 
         batch_l = batch.tolist()
         for x in batch_l:
+            #print('{}/{}'.format(x,len(batch_l)))
             for j in (batch_l):
-                if A[x_map[x]][x_map[j]] != torch.tensor(0):
+                #print(x,j,'in',len(batch_l))
+                if A[x][j] != torch.tensor(0):
                     pos_batch.append([int(x),int(j),A[x][j]])
+
         return torch.tensor(pos_batch)
-        
        # A=A.to(self.device)
         #t = len(A)
         #pos_batch = torch.Tensor( torch.nonzero(A).size(0), 3 ).to(self.device)
@@ -201,7 +268,7 @@ class SamplerContextMatrix(SamplerWithNegSamples):
                 Adj = Adj.to(device)
                 SimRank = torch.zeros(len(batch),len(batch)).to(device)
                 for u in batch:
-                    
+                    print('{}/{}'.format(u,len(batch)))
                     d = datetime.now()
                     for nei in batch:
                         prob_i =torch.zeros(t).to(device)
@@ -211,7 +278,8 @@ class SamplerContextMatrix(SamplerWithNegSamples):
                         pi_v = Adj.random_walk(nei.repeat(r).flatten(), walk_length =t)
                         pi_u = pi_u[:,1:]
                         pi_v = pi_v[:,1:]
-                       
+                        mask=mask.to(self.device)
+                        mask_new = mask_new.to(self.device)
                         pi_u = pi_u * mask - mask_new
                         pi_v = pi_v * mask - mask_new
                         
@@ -221,7 +289,7 @@ class SamplerContextMatrix(SamplerWithNegSamples):
                         a2 = pi_u != -1
                         a3 = pi_v != -1
                         a_to_compare = a1*a2*a3
-                        SR = len(torch.unique((a_to_compare).nonzero().t()[0]))
+                        SR = len(torch.unique((a_to_compare).nonzero(as_tuple =True)[0]))
                         SimRank[u][nei] = SR/r
                      
                 return SimRank 
@@ -232,35 +300,43 @@ class SamplerFactorization(Sampler):
             if not isinstance(batch, torch.Tensor):
                 batch = torch.tensor(batch, dtype=torch.long).to(self.device)
 
-            A,_ =  self.edge_index_to_adj_train(batch)
+            A =  self.edge_index_to_adj_train(batch)
             if self.loss["loss var"] == "Factorization":
                 if self.loss["C"] == "Adj":
                     C = A
                 elif self.loss["C"] == "CN" :
+                    A = A.type(torch.FloatTensor).to(self.device)
                     C = torch.matmul(A,A)
                 elif self.loss["C"] == "AA":
-                    D = torch.diag(1/(sum(A) + sum(A.t()))) 
-                    A = A.type(torch.FloatTensor)
-                    D[torch.isinf(D)] = 0
-                    D[torch.isnan(D)] = 0
-                    C = torch.matmul(torch.matmul(A, D) ,A) 
+                    if True:
+                        D = torch.diag(1/(sum(A) + sum(A.t()))) 
+                        A = A.type(torch.FloatTensor)
+                        D[torch.isinf(D)] = 0
+                        D[torch.isnan(D)] = 0
+                        C = torch.matmul(torch.matmul(A, D) ,A) 
+                    
+                    
                 elif self.loss["C"] == "Katz":
+                    A = A.type(torch.FloatTensor)
                     betta =self.loss["betta"]
                     I = torch.ones
-                    C = betta*torch.inverse((torch.diag(torch.ones(len(A))) - betta*A)) * A
+                    C = betta*torch.matmul(torch.inverse((torch.diag(torch.ones(len(A))) - betta*A)), A)
                 elif self.loss["C"] == "RPR":
                     alpha = self.loss["alpha"]
-                    A = A.type(torch.FloatTensor)
-                    invD =torch.diag(1/sum(A.t()))
-                    invD[torch.isinf(invD)] = 0
-                    C = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(A))) - alpha*torch.matmul(invD,A)))
+                    if True:
+                        A = A.type(torch.FloatTensor)
+                        invD =torch.diag(1/sum(A.t()))
+                        invD[torch.isinf(invD)] = 0
+                    #print(torch.inverse(torch.diag(torch.ones(len(A))))
+                        C = ((1-alpha)*torch.inverse(torch.diag(torch.ones(len(A))) - alpha*torch.matmul(invD,A)))
+
                 return C
             else:
                 return A
             
 class SamplerAPP(SamplerWithNegSamples):
-    def __init__(self, data,device, mask,loss_info,**kwargs):
-            SamplerWithNegSamples.__init__(self, data,device, mask,loss_info,**kwargs)
+    def __init__(self,datasetname, data,device, mask,loss_info,**kwargs):
+            SamplerWithNegSamples.__init__(self,datasetname, data,device, mask,loss_info,**kwargs)
             self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
             self.alpha = self.loss["alpha"]
             self.r = 200
@@ -270,26 +346,34 @@ class SamplerAPP(SamplerWithNegSamples):
             batch = torch.tensor(batch, dtype=torch.long).to(self.device)
         return (self.pos_sample(batch),self.neg_sample(batch))
     def pos_sample(self,batch,**kwargs):
-        d_pb =datetime.now()
-        batch = batch.to(self.device)
-        len_batch = len(batch)
-        mask = torch.tensor([False]*len(self.data.x))
-        mask[batch.tolist()] = True
-        d = datetime.now()
-       
-        a,_ = subgraph(batch, self.data.edge_index)
-        row,col=a 
-        row = row.to(self.device)
-        col = col.to(self.device) 
-                    #start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
-        ASparse = SparseTensor(row=row, col=col, sparse_sizes=(len_batch, len_batch))
         
-        pos_dict = self.find_PPR_approx(batch,ASparse,self.device,self.r,self.alpha)
-        pos_batch=[]
-        for pos_pair in pos_dict:
-            pos_row  = list(pos_pair) 
-            pos_row.append(pos_dict[pos_pair])
-            pos_batch.append(pos_row)
+        name_pos_samples = 'APP_'+self.datasetname+'_'+str(self.alpha)+'_.pickle'
+        if os.path.exists(name_pos_samples):
+            with open(name_pos_samples,'rb') as f:
+                pos_batch = pickle.load(f)
+        else:
+            d_pb =datetime.now()
+            batch = batch.to(self.device)
+            len_batch = len(batch)
+            mask = torch.tensor([False]*len(self.data.x))
+            mask[batch.tolist()] = True
+            d = datetime.now()
+
+            a,_ = subgraph(batch, self.data.edge_index)
+            row,col=a 
+            row = row.to(self.device)
+            col = col.to(self.device) 
+                        #start  = torch.tensor(list(set(row.tolist()) & set(col.tolist()) & set(batch.tolist())),dtype=torch.long)
+            ASparse = SparseTensor(row=row, col=col, sparse_sizes=(len_batch, len_batch))
+
+            pos_dict = self.find_PPR_approx(batch,ASparse,self.device,self.r,self.alpha)
+            pos_batch=[]
+            for pos_pair in pos_dict:
+                pos_row  = list(pos_pair) 
+                pos_row.append(pos_dict[pos_pair])
+                pos_batch.append(pos_row)
+            with open(name_pos_samples,'wb') as f:
+                pickle.dump(pos_batch,f)
         return torch.tensor(pos_batch)
    
     def find_PPR_approx(self,batch,Adj,device,r,alpha):

@@ -3,15 +3,15 @@ from torch_geometric.nn import GCNConv, SAGEConv,GATConv, SGConv, ChebConv
 import torch.nn.functional as F
 from torch_geometric.data import NeighborSampler
 from datetime import datetime
+import collections 
 class Net(torch.nn.Module):
     def __init__(self, dataset, device,loss_function,mode='unsupervised',conv='GCN',hidden_layer=64,out_layer =128,dropout = 0,num_layers=2):
         super(Net, self).__init__()
         self.mode = mode
         self.conv=conv
-        self.num_layers = num_layers
-        self.num_features = dataset.num_features
-        self.num_classes = dataset.num_classes
-        self.data = dataset[0]
+        self.num_layers = num_layers        
+        self.data = dataset
+        self.num_features = dataset.x.shape[1]
         #print(dataset.num_features)
         self.loss_function = loss_function
         self.convs = torch.nn.ModuleList()
@@ -23,7 +23,7 @@ class Net(torch.nn.Module):
         if self.mode=='unsupervised':
             out_channels = self.out_layer
         elif self.mode=='supervised':
-            out_channels = self.num_classes
+            out_channels =len(collections.Counter(self.data.y.tolist()).keys()) #128 FOR LINK PREDICTION, FOR NODE CLASSIFICATION UNCOMMENT
         if self.conv == 'GCN':
             if self.num_layers == 1:
                 self.convs.append(GCNConv(self.num_features, out_channels))
@@ -84,7 +84,7 @@ class Net(torch.nn.Module):
             if i != self.num_layers - 1:
                 x = x.relu()
                 x = F.dropout(x, p=dp, training=self.training)
-        if self.mode=='unsupervised':
+        if self.mode=='unsupervised': #ONLY FOR LINK PREDICTION
             return x
         elif self.mode=='supervised':
             return x.log_softmax(dim=-1)       
@@ -108,7 +108,7 @@ class Net(torch.nn.Module):
         dot = (h_start * h_rest).sum(dim=-1).view(-1)
         neg_loss = -torch.log(torch.sigmoid((-1)*dot)).mean()
 
-        return pos_loss + neg_loss
+        return pos_loss + neg_loss#+0.5*lmbda*sum(sum(out*out))
     
         
     def lossContextMatrix(self,out, PosNegSamples):
@@ -137,7 +137,6 @@ class Net(torch.nn.Module):
         return pos_loss + neg_loss
     def lossFactorization(self,out,S,**kwargs):
         S=S.to(self.device)
-        
         lmbda=self.loss_function["lmbda"]
         loss = 0.5*sum(sum((S- torch.matmul(out,out.t())) *(S- torch.matmul(out,out.t())))) + 0.5*lmbda*sum(sum(out*out))
         return loss
